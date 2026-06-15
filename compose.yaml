@@ -1,0 +1,45 @@
+services:
+  server:
+    build:
+      context: .
+    ports:
+      - "8001:8001"
+    environment:
+      - MYSQL_HOST=db
+      - MYSQL_USER=root
+      - MYSQL_DATABASE=example
+      - MYSQL_PASSWORD_FILE=/run/secrets/db-password
+    depends_on:
+      db:
+        condition: service_healthy
+    secrets:
+      - db-password
+    develop:
+      watch:
+        - action: rebuild
+          path: .
+
+  db:
+    image: mysql:9
+    restart: always
+    secrets:
+      - db-password
+    volumes:
+      - db-data:/var/lib/mysql
+    environment:
+      - MYSQL_DATABASE=example
+      - MYSQL_ROOT_PASSWORD_FILE=/run/secrets/db-password
+    expose:
+      - "3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p$(cat /run/secrets/db-password)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  db-data:
+
+secrets:
+  db-password:
+    file: db/password.txt
