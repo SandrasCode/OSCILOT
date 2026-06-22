@@ -1,7 +1,8 @@
 services:
   server:
-    build:
-      context: .
+    #build:
+    #  context: .
+    image: cypria/weiterbildung-dev:latest
     ports:
       - "8001:8001"
     environment:
