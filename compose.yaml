@@ -1,8 +1,11 @@
 services:
   server:
-    #build:
-    #  context: .
-    image: cypria/weiterbildung-dev:latest
+    build:
+      context: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    #image: cypria/weiterbildung-dev:latest
     ports:
       - "8001:8001"
     environment:
@@ -20,6 +23,8 @@ services:
         - action: sync+restart
           path: .
           target: /app
+        - action: rebuild
+          path: requirements.txt
         # - action: rebuild
         #   path: .
 
@@ -30,13 +35,17 @@ services:
       - db-password
     volumes:
       - db-data:/var/lib/mysql
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
     environment:
       - MYSQL_DATABASE=example
       - MYSQL_ROOT_PASSWORD_FILE=/run/secrets/db-password
     expose:
       - "3306"
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p$(cat /run/secrets/db-password)"]
+      # test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p$(cat /run/secrets/db-password)"]
+      # test: ["CMD-SHELL", "mysqladmin ping -h localhost -p$(cat /run/secrets/db-password)"]
+      # <- problem with those two options is that it tests the health INSIDE the container. it can happen that a tcp request is not yet possible
+      test: ["CMD-SHELL", "mysql -uroot -p$$(cat /run/secrets/db-password) -e 'SELECT 1'"]
       interval: 10s
       timeout: 5s
       retries: 5

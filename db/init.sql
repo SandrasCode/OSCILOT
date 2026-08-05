@@ -1,0 +1,19 @@
+-- Fill here your database initialisation:
+
+-- Per example:
+-- ----------------------------------
+-- Drop the database if it already exists
+-- DROP DATABASE IF EXISTS case_study_gans ;
+-- Create the database
+-- CREATE DATABASE example;
+-- Use the database
+-- USE case_study_gans;
+-- Create the 'cities' table
+-- CREATE TABLE cities (
+--    id INT AUTO_INCREMENT, -- Automatically generated ID for each city
+--    city VARCHAR(255) NOT NULL, -- Name of the city
+--    country VARCHAR(255),
+--    longitude DECIMAL(9,6), -- yes ai was helping me to decide
+--    latitude DECIMAL(9,6), -- yes ai was helping me to decide
+--    PRIMARY KEY (id) 
+-- );
