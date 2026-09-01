@@ -17,3 +17,29 @@
 --    latitude DECIMAL(9,6), -- yes ai was helping me to decide
 --    PRIMARY KEY (id) 
 -- );
+
+
+CREATE DATABASE oscilot;
+-- Use the database
+USE oscilot;
+-- Create the table
+CREATE TABLE parkingspaces (
+    id INT, 
+    #<- autoincrement is not a good idea here. It will make the preparation of data unneccessarily 
+    #much more complicated
+    name VARCHAR(255) DEFAULT '',
+    columnName VARCHAR(255),
+    longitude DECIMAL(9,6) DEFAULT NULL,
+    latitude DECIMAL(9,6) DEFAULT NULL,
+    PRIMARY KEY(id)
+);
+
+CREATE TABLE lots (
+	parkingId INT, 
+    timepoint DATETIME, 
+    amount INT,
+    PRIMARY KEY (timepoint, parkingId),
+    FOREIGN KEY (parkingId) REFERENCES parkingspace(id) 
+ );
+
+
