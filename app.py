@@ -199,6 +199,23 @@ def prepareDataForDB(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
   # If a parkingdeck doesnt exist in a certain point of time it will be represented here as amount = NaN
   returnedLotDf = returnedLotDf.dropna(subset=["amount"])
   returnedLotDf = returnedLotDf.drop_duplicates() #needed... :shrug:
+  print("Which values are in my columns?")
+  amount_numeric = pd.to_numeric(
+    returnedLotDf["amount"],
+    errors="coerce"
+  )
+  print(returnedLotDf.loc[amount_numeric.isna(), "amount"].value_counts(dropna=False))
+  print("---------------------")
+  pd.set_option("display.max_rows", None)
+  keiDf = returnedLotDf[returnedLotDf["amount"] == "kei"]
+  print(keiDf)
+  #TODO: amount has still "kei", "bes" and "ges" last two are "geschlossen", "besetzt" "kei" is not yet identifiable
+  print("---------------------")
+  print("how long is my dataframe?")
+  print(len(returnedLotDf))
+  # replace bes with 0 because bes is besetzt so 'full'.
+  returnedLotDf = returnedLotDf.loc[returnedLotDf['amount'] == 'bes', 'amount'] = 0
+  # while ges is geschlossen so closed. I probably drop the rows where it is closed? i dont know yet
   return returnedPdDf, returnedLotDf
 
 
