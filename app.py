@@ -4,7 +4,12 @@ import pandas as pd # type: ignore
 #print(students)
 import requests
 from io import StringIO
-from sqlalchemy import Engine, create_engine
+from sqlalchemy import Engine, create_engine, text
+from pathlib import Path
+import time
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
+
+engine = None
 
 def resetDatabaseContent(engine: Engine) -> bool:
   """
@@ -20,15 +25,16 @@ def resetDatabaseContent(engine: Engine) -> bool:
   returnvalue = True
   try:
     with engine.begin() as conn: #i use a transaction for this
-      conn.execute(text("DELETE FROM parkingspaces"))
       conn.execute(text("DELETE FROM lots"))
+      conn.execute(text("DELETE FROM parkingspaces"))
+      # <- because of foreign keys i need to delete first lots and only then parkinspaces
   except SQLAlchemyError as e:
     print(f"Database reset failed: {e}")
     returnvalue = False
   return returnvalue
 
 
-def initDatabase(resetDb: bool = False):
+def initDatabase(resetDb: bool = False) -> Engine:
   # TODO: Add boolean to catch if it was successful?
   """
     Initialize the database.
@@ -36,7 +42,11 @@ def initDatabase(resetDb: bool = False):
     Args:
       resetDb: Whether to reset the existing database content before
       initializing it. Default is do not reset.
+
+    Returns:
+      initialized database engine.
   """
+  global engine
   schema = "oscilot"
   host = "db"
   user = "root"
@@ -56,8 +66,9 @@ def initDatabase(resetDb: bool = False):
   else:
       raise Exception("Database connection failed")
   if resetDb:
-    successfulReseted = resetDatabaseContent()
+    successfulReseted = resetDatabaseContent(engine)
     print(f"Database reset successful: {successfulReseted}")
+  return engine
 
 
 def getEngine() -> Engine:
@@ -141,7 +152,7 @@ def getParkingspaces(engine: Engine) -> pd.DataFrame:
 def getLots(engine: Engine) -> pd.DataFrame:
   return pd.read_sql("lots", con=engine)
 
-def prepareDataForDB(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Dataframe]:
+def prepareDataForDB(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
   """
     Args:
       df: DataFrame of the format getAllDataFromParkingDecks returns
