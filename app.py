@@ -196,6 +196,9 @@ def prepareDataForDB(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
   workingDf = df.rename(columns= mapping) #rename parkingspaces names to parkingspaces ids
   returnedLotDf = workingDf.melt(id_vars="Datum und Uhrzeit", var_name="parkingId", value_name="amount")
   returnedLotDf = returnedLotDf.rename(columns={"Datum und Uhrzeit": "timepoint"})
+  # If a parkingdeck doesnt exist in a certain point of time it will be represented here as amount = NaN
+  returnedLotDf = returnedLotDf.dropna(subset=["amount"])
+  returnedLotDf = returnedLotDf.drop_duplicates() #needed... :shrug:
   return returnedPdDf, returnedLotDf
 
 
