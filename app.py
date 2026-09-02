@@ -8,6 +8,8 @@ from sqlalchemy import Engine, create_engine, text
 from pathlib import Path
 import time
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
+import seaborn as sns
+import matplotlib.pyplot as plt
 
 engine = None
 
@@ -98,7 +100,7 @@ def getAllDataFromParkingDecks() -> pd.DataFrame:
   def get_csv_files(url):
     response = requests.get(url)
     response.raise_for_status()
-
+    print("Begin getting files")
     for file in response.json():
       if file["type"] == "file" and file["name"].endswith(".csv"):
         yield file["download_url"]
@@ -111,13 +113,14 @@ def getAllDataFromParkingDecks() -> pd.DataFrame:
   for csv_url in get_csv_files(api_url):
     csv_response = requests.get(csv_url)
     csv_response.raise_for_status()
-
+    print(f"Downloading CSV: {csv_url}")
     dataframes.append(
         pd.read_csv(StringIO(csv_response.text))
     )
 
   if not dataframes:
     return pd.DataFrame()
+  print("Concatenate files to dataframe")
   df = pd.concat(dataframes, ignore_index=True, sort=False) #slightly more efficient with collecting data and concatening all at once.
   return df #hopefully this works? this will be a heck of a dataframe maybe later just slice the new stuff?
 
@@ -201,11 +204,21 @@ def prepareDataForDB(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
 #-----------------------------------
 
 initDatabase(resetDb=True)
+print("Database initialized")
 dataFromWebDf = getAllDataFromParkingDecks()
-parkinspacesDf, lotsDf = prepareDataForDB(dataFromWebDf)
+print("Got data")
+parkingspacesDf, lotsDf = prepareDataForDB(dataFromWebDf)
+print("prepared data")
 parkSucc = saveDataFrameToDB(getEngine(), parkingspacesDf, 'parkingspaces')
 if(parkSucc):
   print("Saving parkingspaces data successful!")
 lotsSucc = saveDataFrameToDB(getEngine(), lotsDf, 'lots')
 if(lotsSucc):
   print("Saving lots data successful!")
+lotsDf = getLots(getEngine())
+print("got lots")
+sns.lineplot(data=lotsDf, x="timepoint", y="amount", hue="parkingId")
+print("saving graph")
+plt.savefig("/app/output/graph.png")
+plt.close()
+print("saved")
