@@ -153,7 +153,7 @@ def getParkingspaces(engine: Engine) -> pd.DataFrame:
   return pd.read_sql("parkingspaces", con=engine)
 
 def getLots(engine: Engine) -> pd.DataFrame:
-  return pd.read_sql("lots", con=engine)
+  return pd.read_sql("SELECT * FROM lots ORDER BY parkingId, timepoint", con=engine)
 
 def prepareDataForDB(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
   """
