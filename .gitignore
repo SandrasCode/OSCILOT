@@ -1,3 +1,6 @@
+# Data does not belong to git
+db/data
+
 # Security
 db/password.txt
 
