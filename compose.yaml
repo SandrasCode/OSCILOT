@@ -11,7 +11,7 @@ services:
     environment:
       - MYSQL_HOST=db
       - MYSQL_USER=root
-      - MYSQL_DATABASE=example
+      - MYSQL_DATABASE=oscilot
       - MYSQL_PASSWORD_FILE=/run/secrets/db-password
     depends_on:
       db:
