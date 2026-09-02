@@ -132,15 +132,22 @@ def saveDataFrameToDB(engine: Engine, df: pd.DataFrame, table_name: str) -> bool
     print(f"Failed to save DataFrame to '{table_name}': {e}")
   return returnvalue
 
+def getParkingspaces(engine: Engine) -> pd.DataFrame:
+  return pd.read_sql("parkingspaces", con=engine)
+
+def getLots(engine: Engine) -> pd.DataFrame:
+  return pd.read_sql("lots", con=engine)
+
 def prepareDataForDB(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Dataframe]:
   """
     Args:
       df: DataFrame of the format getAllDataFromParkingDecks returns
-      (columns: 'Datum und Uhrzeit', 'PH Coesfelder Kreuz', 'PH Theater', 'PP Hörsterplatz',
+      (columns per example: 'Datum und Uhrzeit', 'PH Coesfelder Kreuz', 'PH Theater', 'PP Hörsterplatz',
       'PH Alter Steinweg', 'Busparkplatz', 'PP Schlossplatz Nord', 'PP Schlossplatz Süd',
       'PH Aegidii', 'PP Georgskommende', 'PH Münster Arkaden', 'PH Karstadt', 'PH Stubengasse',
       'PH Bremer Platz', 'PH Engelenschanze', 'PH Bahnhofstraße', 'PH Cineplex', 'PH Stadthaus 3',
       'PP Hafenmarkt', 'TG Hafenmarkt', 'Halle Münsterland P1')
+      In general, 'Datum und Uhrzeit' and then the names of the parking decks
 
     Returns:
       tuple of
@@ -151,7 +158,25 @@ def prepareDataForDB(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Dataframe]:
 
   #1. ignore rows whose "Datum und Uhrzeit" isnt in a datetime format as there is sometimes
   # "Anzahl Parkplätze gesamt" contained
-
+  df = df[pd.to_datetime(df["Datum und Uhrzeit"], errors="coerce").notna()] #filter to filter out rows without correct datetime (happens somteimes)
   #2. build df for parkingspaces
+    #generate IDs since existing DB data may exist in db.
+  psdf = getParkingspaces(getEngine())
+  if psdf.empty:
+    lastid = 0 #ids will begin at 1
+  else:
+    lastid = psdf["id"].max() # better than last row because independend of order of data in db
+  nextid = lastid + 1
+  parkingdecks = df.columns.drop(['Datum und Uhrzeit'])
+  returnedPdDf = pd.DataFrame()
+  returnedPdDf['columnName'] = parkingdecks
+  returnedPdDf['id'] = range(nextid, nextid+len(returnedPdDf)) #as the last value is exclusive
 
   #3. build df for lots
+  #list of dfs with "Datum und Uhrzeit" and the values of one Parking Lot
+  lots = []
+  mapping = returnedPdDf.set_index("columnName")["id"]
+  workingDf = df.rename(columns= mapping) #rename parkingspaces names to parkingspaces ids
+  returnedLotDf = workingDf.melt(id_vars="Datum und Uhrzeit", var_name="parkingId", value_name="amount")
+
+  return returnedPdDf, returnedLotDf
