@@ -75,26 +75,38 @@ def getAllDataFromParkingDecks() -> pd.DataFrame:
   """
     Retrieves historical data from 2019 to the latest available date,
     which is typically about one day behind the current date.
+    Also gets data from subdirectories of data.
 
     Returns:
       DataFrame with all informations.
   """
   api_url = "https://api.github.com/repos/codeformuenster/parking-decks-muenster/contents/data"
-  # TODO: handle data inside folder data/2019-2023
-  response = requests.get(api_url)
-  response.raise_for_status()
+  def get_csv_files(url):
+    response = requests.get(url)
+    response.raise_for_status()
 
-  files = response.json()
-  df = pd.DataFrame()
-  for file in files:
-    if file["name"].endswith(".csv"):
-      csv_response = requests.get(file["download_url"])
-      csv_response.raise_for_status()
-      dfNew = pd.read_csv(StringIO(csv_response.text))
-      #print(file["name"])
-      #print(df.head())
-      df = pd.concat([df, dfNew], ignore_index=True)
+    for file in response.json():
+      if file["type"] == "file" and file["name"].endswith(".csv"):
+        yield file["download_url"]
+
+      elif file["type"] == "dir":
+        yield from get_csv_files(file["url"])
+
+  dataframes = []
+
+  for csv_url in get_csv_files(api_url):
+    csv_response = requests.get(csv_url)
+    csv_response.raise_for_status()
+
+    dataframes.append(
+        pd.read_csv(StringIO(csv_response.text))
+    )
+
+  if not dataframes:
+    return pd.DataFrame()
+  df = pd.concat(dataframes, ignore_index=True, sort=False) #slightly more efficient with collecting data and concatening all at once.
   return df #hopefully this works? this will be a heck of a dataframe maybe later just slice the new stuff?
+
 
 def saveDataFrameToDB(engine: Engine, df: pd.DataFrame, table_name: str) -> bool:
   """
