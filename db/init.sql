@@ -39,7 +39,7 @@ CREATE TABLE lots (
     timepoint DATETIME, 
     amount INT,
     PRIMARY KEY (timepoint, parkingId),
-    FOREIGN KEY (parkingId) REFERENCES parkingspace(id) 
+    FOREIGN KEY (parkingId) REFERENCES parkingspaces(id)
  );
 
 
