@@ -104,7 +104,7 @@ def getAllDataFromParkingDecks() -> pd.DataFrame:
     for file in response.json():
       if file["type"] == "file" and file["name"].endswith(".csv"):
         yield file["download_url"]
-
+        #break #this is to only get first file for debug purposes
       elif file["type"] == "dir":
         yield from get_csv_files(file["url"])
 
@@ -195,7 +195,7 @@ def prepareDataForDB(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
   mapping = returnedPdDf.set_index("columnName")["id"]
   workingDf = df.rename(columns= mapping) #rename parkingspaces names to parkingspaces ids
   returnedLotDf = workingDf.melt(id_vars="Datum und Uhrzeit", var_name="parkingId", value_name="amount")
-
+  returnedLotDf = returnedLotDf.rename(columns={"Datum und Uhrzeit": "timepoint"})
   return returnedPdDf, returnedLotDf
 
 
@@ -217,7 +217,7 @@ if(lotsSucc):
   print("Saving lots data successful!")
 lotsDf = getLots(getEngine())
 print("got lots")
-sns.lineplot(data=lotsDf, x="timepoint", y="amount", hue="parkingId")
+sns.lineplot(data=lotsDf, x="timepoint", y="amount", hue="parkingId", palette="tab20")
 print("saving graph")
 plt.savefig("/app/output/graph.png")
 plt.close()
