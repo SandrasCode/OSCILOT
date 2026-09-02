@@ -3,6 +3,8 @@ services:
     build:
       context: .
     restart: unless-stopped
+    volumes:
+      - ./output:/app/output
     env_file:
       - .env
     #image: cypria/weiterbildung-dev:latest
@@ -13,6 +15,7 @@ services:
       - MYSQL_USER=root
       - MYSQL_DATABASE=oscilot
       - MYSQL_PASSWORD_FILE=/run/secrets/db-password
+      - MPLCONFIGDIR=/tmp/matplotlib
     depends_on:
       db:
         condition: service_healthy
