@@ -6,7 +6,30 @@ import requests
 from io import StringIO
 from sqlalchemy import Engine, create_engine
 
+def resetDatabaseContent(engine: Engine) -> bool:
+  """
+    Delete all content from the database tables.
+
+    This is necessary because, when working with Docker, restarting the
+    application and using ``if_exists="append"`` with ``to_sql`` can result
+    in duplicated data.
+
+    Returns:
+      True if the database content was deleted successfully, otherwise False.
+  """
+  returnvalue = True
+  try:
+    with engine.begin() as conn: #i use a transaction for this
+      conn.execute(text("DELETE FROM parkingspaces"))
+      conn.execute(text("DELETE FROM lots"))
+  except SQLAlchemyError as e:
+    print(f"Database reset failed: {e}")
+    returnvalue = False
+  return returnvalue
+
+
 def initDatabase(resetDb: bool = False):
+  # TODO: Add boolean to catch if it was successful?
   """
     Initialize the database.
 
@@ -49,26 +72,6 @@ def getEngine() -> Engine:
       engine = initDatabase()
   return engine
 
-def resetDatabaseContent(engine: Engine) -> bool:
-  """
-    Delete all content from the database tables.
-
-    This is necessary because, when working with Docker, restarting the
-    application and using ``if_exists="append"`` with ``to_sql`` can result
-    in duplicated data.
-
-    Returns:
-      True if the database content was deleted successfully, otherwise False.
-  """
-  returnvalue = True
-  try:
-    with engine.begin() as conn: #i use a transaction for this
-      conn.execute(text("DELETE FROM parkingspaces"))
-      conn.execute(text("DELETE FROM lots"))
-  except SQLAlchemyError as e:
-    print(f"Database reset failed: {e}")
-    returnvalue = False
-  return returnvalue
 
 
 def getAllDataFromParkingDecks() -> pd.DataFrame:
@@ -180,3 +183,18 @@ def prepareDataForDB(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Dataframe]:
   returnedLotDf = workingDf.melt(id_vars="Datum und Uhrzeit", var_name="parkingId", value_name="amount")
 
   return returnedPdDf, returnedLotDf
+
+
+#-----------------------------------
+# Call everything!
+#-----------------------------------
+
+initDatabase(resetDb=True)
+dataFromWebDf = getAllDataFromParkingDecks()
+parkinspacesDf, lotsDf = prepareDataForDB(dataFromWebDf)
+parkSucc = saveDataFrameToDB(getEngine(), parkingspacesDf, 'parkingspaces')
+if(parkSucc):
+  print("Saving parkingspaces data successful!")
+lotsSucc = saveDataFrameToDB(getEngine(), lotsDf, 'lots')
+if(lotsSucc):
+  print("Saving lots data successful!")
