@@ -4,3 +4,4 @@ SQLAlchemy
 PyMySQL
 seaborn
 matplotlib
+statsmodels
