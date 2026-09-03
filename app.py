@@ -206,35 +206,57 @@ def prepareDataForDB(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
   )
   print(returnedLotDf.loc[amount_numeric.isna(), "amount"].value_counts(dropna=False))
   print("---------------------")
-  pd.set_option("display.max_rows", None)
-  keiDf = returnedLotDf[returnedLotDf["amount"] == "kei"]
-  print(keiDf)
-  #TODO: amount has still "kei", "bes" and "ges" last two are "geschlossen", "besetzt" "kei" is not yet identifiable
+  #pd.set_option("display.max_rows", None)
+  #keiDf = returnedLotDf[returnedLotDf["amount"] == "kei"].groupby("parkingId").first()
+  #print(keiDf)
+  #amount has still "kei", "bes" and "ges" last two are "geschlossen", "besetzt" "kei" is "keine Angabe" so no information
   print("---------------------")
   print("how long is my dataframe?")
   print(len(returnedLotDf))
+  # I save the status for better prediction
+  returnedLotDf['status'] = 'frei'
   # replace bes with 0 because bes is besetzt so 'full'.
-  returnedLotDf = returnedLotDf.loc[returnedLotDf['amount'] == 'bes', 'amount'] = 0
-  # while ges is geschlossen so closed. I probably drop the rows where it is closed? i dont know yet
+  returnedLotDf.loc[returnedLotDf['amount'] == 'bes', 'status'] = 'bes'
+  returnedLotDf.loc[returnedLotDf['amount'] == 'bes', 'amount'] = 0
+  # ges is geschlossen so closed. This will count as 0 parking lots with the status ges
+  returnedLotDf.loc[returnedLotDf['amount'] == 'ges', 'status'] = 'ges'
+  returnedLotDf.loc[returnedLotDf['amount'] == 'ges', 'amount'] = 0
+  # kei is keine Angabe so no information. I have to drop them.
+  returnedLotDf = returnedLotDf.drop(returnedLotDf[returnedLotDf['amount'] == 'kei'].index)
   return returnedPdDf, returnedLotDf
+
+def resetDatabaseAndImportAllData() -> bool:
+  """
+    Deletes all database content and fills it up completely from scratch with all data from 2019 - now
+
+    Returns:
+      if saving all data was successful it returns True, otherwise False
+  """
+  returnvalue = False
+  engine = initDatabase(resetDb=True)
+  print("Database initialized")
+  dataFromWebDf = getAllDataFromParkingDecks()
+  print("Got data")
+  parkingspacesDf, lotsDf = prepareDataForDB(dataFromWebDf)
+  print("prepared data")
+  parkSucc = saveDataFrameToDB(engine, parkingspacesDf, 'parkingspaces')
+  if(parkSucc):
+    print("Saving parkingspaces data successful!")
+  lotsSucc = saveDataFrameToDB(engine, lotsDf, 'lots')
+  if(lotsSucc):
+    print("Saving lots data successful!")
+  if(parkSucc & lotSucc):
+    returnvalue = True
+  return returnvalue
 
 
 #-----------------------------------
 # Call everything!
 #-----------------------------------
 
-initDatabase(resetDb=True)
-print("Database initialized")
-dataFromWebDf = getAllDataFromParkingDecks()
-print("Got data")
-parkingspacesDf, lotsDf = prepareDataForDB(dataFromWebDf)
-print("prepared data")
-parkSucc = saveDataFrameToDB(getEngine(), parkingspacesDf, 'parkingspaces')
-if(parkSucc):
-  print("Saving parkingspaces data successful!")
-lotsSucc = saveDataFrameToDB(getEngine(), lotsDf, 'lots')
-if(lotsSucc):
-  print("Saving lots data successful!")
+worked = resetDatabaseAndImportAllData()
+message = "Import worked fine" if worked else "Import had a problem"
+print(message)
 lotsDf = getLots(getEngine())
 print("got lots")
 sns.lineplot(data=lotsDf, x="timepoint", y="amount", hue="parkingId", palette="tab20")
