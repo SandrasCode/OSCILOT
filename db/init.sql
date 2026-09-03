@@ -38,6 +38,7 @@ CREATE TABLE lots (
 	parkingId INT, 
     timepoint DATETIME, 
     amount INT,
+    status VARCHAR(255), #i could use a default here but i dont then i can see if there are problems
     PRIMARY KEY (timepoint, parkingId),
     FOREIGN KEY (parkingId) REFERENCES parkingspaces(id)
  );
