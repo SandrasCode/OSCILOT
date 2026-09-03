@@ -11,6 +11,7 @@ from sqlalchemy.exc import OperationalError, SQLAlchemyError
 import seaborn as sns
 import matplotlib.pyplot as plt
 from statsmodels.graphics.tsaplots import plot_acf
+import numpy as np
 
 engine = None
 
@@ -224,6 +225,7 @@ def prepareDataForDB(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
   returnedLotDf.loc[returnedLotDf['amount'] == 'ges', 'amount'] = 0
   # kei is keine Angabe so no information. I have to drop them.
   returnedLotDf = returnedLotDf.drop(returnedLotDf[returnedLotDf['amount'] == 'kei'].index)
+  returnedLotDf = returnedLotDf.drop_duplicates(subset=['parkingId', 'timepoint'])
   return returnedPdDf, returnedLotDf
 
 def resetDatabaseAndImportAllData() -> bool:
@@ -246,7 +248,7 @@ def resetDatabaseAndImportAllData() -> bool:
   lotsSucc = saveDataFrameToDB(engine, lotsDf, 'lots')
   if(lotsSucc):
     print("Saving lots data successful!")
-  if(parkSucc & lotSucc):
+  if(parkSucc & lotsSucc):
     returnvalue = True
   return returnvalue
 
@@ -255,11 +257,25 @@ def resetDatabaseAndImportAllData() -> bool:
 # Call everything!
 #-----------------------------------
 
-worked = resetDatabaseAndImportAllData()
-message = "Import worked fine" if worked else "Import had a problem"
-print(message)
+#worked = resetDatabaseAndImportAllData()
+#message = "Import worked fine" if worked else "Import had a problem"
+#print(message)
 lotsDf = getLots(getEngine())
 print("got lots")
+
+
+result = pd.read_sql(
+    """
+    SELECT *
+    FROM lots
+    WHERE timepoint = '2025-01-12 06:25:00'
+      AND parkingId = 16
+    """,
+    getEngine()
+)
+
+print(result)
+
 
 # analizing oscillations. 14 days:
 lotsDf["timepoint"] = pd.to_datetime(lotsDf["timepoint"])
@@ -277,7 +293,7 @@ plt.close()
 lotsDf["time"] = lotsDf["timepoint"].dt.strftime("%H:%M")
 lotsDf["date"] = lotsDf["timepoint"].dt.date
 sample = lotsDf[
-  (lotsDf["parkintId"] == 1) &
+  (lotsDf["parkingId"] == 1) &
   (lotsDf["timepoint"] >= "2025-06-01") &
   (lotsDf["timepoint"] < "2025-06-15")
 ]
@@ -288,34 +304,89 @@ sns.lineplot(
   hue="date"
 )
 plt.xticks(rotation=45)
-plt.savefig("app/output/amountPerTime.png")
+plt.savefig("/app/output/amountPerTime.png")
 plt.close()
 
 #workday vs weekend
+#lotsDf["weekday"] = lotsDf["timepoint"].dt.day_name()
+#pattern = (
+#    lotsDf.loc[lotsDf['parkingId'] == 1]
+#    .groupby(["weekday", "time"])
+#    ["amount"]
+#    .mean()
+#    .reset_index()
+#)
+#sns.lineplot(
+#    data=pattern,
+#    x="time",
+#    y="amount",
+#    hue="weekday"
+#)
+#plt.xticks(rotation=45)
+#plt.savefig("/app/output/workdayVsWeekday.png")
+#plt.close()
+
+# Workday vs. weekend / weekday patterns
+
 lotsDf["weekday"] = lotsDf["timepoint"].dt.day_name()
+
+weekday_order = [
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+  "Sunday"
+]
+
+lotsDf["weekday"] = pd.Categorical(
+  lotsDf["weekday"],
+  categories=weekday_order,
+  ordered=True
+)
+
+# Round timestamps to 30-minute intervals
+lotsDf["time_30min"] = lotsDf["timepoint"].dt.floor("30min")
+
+# Use one common date so Seaborn gets a real datetime axis
+lotsDf["time"] = pd.to_datetime(
+  "2000-01-01 " + lotsDf["time_30min"].dt.strftime("%H:%M:%S")
+)
 pattern = (
-    lotsDf.loc[lotsDf['parkingId'] == 1]
-    .groupby(["weekday", "time"])
-    ["amount"]
-    .mean()
-    .reset_index()
+  lotsDf.loc[lotsDf["parkingId"] == 1]
+  .groupby(["weekday", "time"], observed=True)["amount"]
+  .mean()
+  .reset_index()
 )
+
 sns.lineplot(
-    data=pattern,
-    x="time",
-    y="amount",
-    hue="weekday"
+  data=pattern,
+  x="time",
+  y="amount",
+  hue="weekday",
+  hue_order=weekday_order
 )
+
 plt.xticks(rotation=45)
-plt.savefig("app/output/workdayVsWeekday.png")
+plt.title("Average parking occupancy by weekday")
+plt.xlabel("Time of day")
+plt.ylabel("Average amount")
+# Show only the time on the x-axis
+import matplotlib.dates as mdates
+plt.gca().xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
+plt.tight_layout()
+plt.savefig("/app/output/workdayVsWeekday.png")
 plt.close()
+
+
 
 # autocorrelation
 df = lotsDf.loc[lotsDf['parkingId'] == 1]
 series = df.set_index("timepoint")["amount"]
 plot_acf(
-    series.dropna(),
-    lags=7 * 24 * 12
+  series.dropna(),
+  lags=7 * 24 * 12
 )
 plt.savefig("/app/output/autocorrelation.png")
 plt.close()
@@ -325,17 +396,17 @@ values = lotsDf.loc[lotsDf['parkingId'] ==1, "amount"].dropna().values
 fft = np.fft.rfft(values)
 power = np.abs(fft)
 freq = np.fft.rfftfreq(
-    len(values),
-    d=5 * 60
+  len(values),
+  d=5 * 60
 )
 plt.savefig("/app/output/frequencies.png")
 plt.close()
 
 #did the system change over years?
 monthly = (
-    df.set_index("timepoint")
-      .resample("ME")["amount"]
-      .mean()
+  df.set_index("timepoint")
+    .resample("ME")["amount"]
+    .mean()
 )
 monthly.plot()
 plt.savefig("/app/output/systemchanged.png")
@@ -343,16 +414,16 @@ plt.close()
 
 #heatmap
 sample = df[ #as df is for only parkingId==1
-    (df["timepoint"] >= "2025-06-01") &
-    (df["timepoint"] < "2025-06-15")
+    (df["timepoint"] >= "2026-08-17") &
+    (df["timepoint"] < "2026-08-31")
 ].copy()
 sample["date"] = sample["timepoint"].dt.date
 sample["time"] = sample["timepoint"].dt.strftime("%H:%M")
 pivot = sample.pivot_table(
-    index="date",
-    columns="time",
-    values="amount",
-    aggfunc="mean"
+  index="date",
+  columns="time",
+  values="amount",
+  aggfunc="mean"
 )
 sns.heatmap(pivot)
 plt.savefig("/app/output/heatmap.png")
