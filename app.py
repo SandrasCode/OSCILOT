@@ -16,6 +16,10 @@ import matplotlib.dates as mdates
 from sklearn.metrics import mean_absolute_error, root_mean_squared_error
 from darts import TimeSeries
 from darts.models import ARIMA
+from prophet import Prophet
+from prophet.diagnostics import cross_validation
+from darts.models import RNNModel
+from darts.dataprocessing.transformers import Scaler
 
 engine = None
 
@@ -607,7 +611,7 @@ timeseriesDf = (
 #this point in time, the one 15 before is missing, so 14:15 is missing
 #2026-07-09 01:45:00 2026-07-09 01:45:00 0 days 00:30:00
 
-# 2026-07-09 01:30
+# 2026-07-09 01:30 - interpolate missing value:
 timeseriesDf.loc[
     "2026-07-09 01:30:00", "amount"
 ] = (
@@ -771,23 +775,157 @@ prediction = model.predict(n=1)
 print("predict...")
 print(prediction)
 
+#Commented out, i now experiment with prophet and this 10 minute waiting game is not needed:
 #Now: Rolling / One step ahead forecast
-print("Rolling forecast incoming... (might need a few minutes)")
-fullSeries = trainSeries.concatenate(testSeries)
-forecast = model.historical_forecasts(
-  series=fullSeries,
-  start=testSeries.start_time(), #prediction starts at timepoint of testdata
-  forecast_horizon=1, # only one step in the future for the moment = 15m
-  stride=1, # only one step at each time.
-  retrain=False, #dont retrain on every step. it is pre trained it is not needed.
-  last_points_only=True # get only last point, because of forecast_horizon 1 it is the case anyway
+#print("Rolling forecast incoming... (might need a few minutes)")
+#fullSeries = trainSeries.concatenate(testSeries)
+#forecast = model.historical_forecasts(
+#  series=fullSeries,
+#  start=testSeries.start_time(), #prediction starts at timepoint of testdata
+#  forecast_horizon=1, # only one step in the future for the moment = 15m
+#  stride=1, # only one step at each time.
+#  retrain=False, #dont retrain on every step. it is pre trained it is not needed.
+#  last_points_only=True # get only last point, because of forecast_horizon 1 it is the case anyway
+#)
+
+
+#print(forecast)
+
+#forecastDf = forecast.to_dataframe()
+#print(forecastDf.head(10))
+
+#evaluationDf = pd.concat(
+#    [
+#        testDf["amount"].rename("actual"),
+#        forecastDf["amount"].rename("prediction")
+#    ],
+#    axis=1
+#)
+
+#print(evaluationDf.head(10))
+#print(evaluationDf.shape)
+
+#evaluationDf=evaluationDf.dropna()
+
+#mae = mean_absolute_error(
+#  evaluationDf["actual"],
+#  evaluationDf["prediction"]
+#)
+
+
+#rmse = root_mean_squared_error(
+#  evaluationDf["actual"],
+#  evaluationDf["prediction"]
+#)
+
+#Mae: 3.452384824555465
+#Rmse: 5.570498681417147
+#<- an incredible lot better than baselinemodels!
+
+#print("Shape")
+#print(evaluationDf.shape)
+# 3326 × 15 min ≈ 34,9 days. Hole test set is from 28.07. to 02.09., so about 35 days. :check:
+#print(f"Mae: {mae}")
+#print(f"Rmse: {rmse}")
+
+#--------------------
+# Prophet
+#--------------------
+
+# I will not use my whole testset. Because of rolling forecast each forecast needs about
+# 2 seconds. Which results in 1,5 hours of running without paralellisation
+
+testEnd = testDf.index.min() + pd.Timedelta(weeks=1)
+testDfProphet = testDf.loc[testDf.index < testEnd].copy()
+
+prophetDf = pd.concat([
+    trainDf.reset_index()[["timepoint", "amount"]],
+    testDfProphet.reset_index()[["timepoint", "amount"]]
+]).rename(
+    columns={
+        "timepoint": "ds",
+        "amount": "y"
+    }
+).dropna()
+
+
+
+model = Prophet()
+# This looks like data leakage but isnt, because i use cutoffs
+model.fit(prophetDf)
+
+cutoffs = [
+    timestamp - pd.Timedelta(minutes=15)
+    for timestamp in testDfProphet.index
+    if pd.notna(testDfProphet.loc[timestamp, "amount"])
+]
+
+#commented following stuff out because it needs half an hour
+#forecast = cross_validation(
+#    model,
+#    horizon="15 minutes",
+#    cutoffs=cutoffs,
+#    #parallel="processes"
+#)
+
+#forecast = forecast.loc[
+#    forecast["ds"] == forecast["cutoff"] + pd.Timedelta(minutes=15)
+#].copy()
+
+#mae = mean_absolute_error(
+#    forecast["y"],
+#    forecast["yhat"]
+#)
+
+#rmse = root_mean_squared_error(
+#    forecast["y"],
+#    forecast["yhat"]
+#)
+
+#print(f"mae: {mae}, rmse: {rmse}")
+#  mae: 43.966595656221706, rmse: 58.81863581832422
+# dissapointing
+
+
+
+print("________________")
+print("RNN MODEL")
+print("________________")
+
+
+model = RNNModel(
+    model="LSTM",
+    input_chunk_length=96,
+    output_chunk_length=1,
+    training_length=96,
+    n_rnn_layers=1,
+    hidden_dim=25,
+    n_epochs=10,
+    random_state=42
 )
 
+scaler = Scaler()
+trainSeriesScaled = scaler.fit_transform(trainSeries)
 
-print(forecast)
+model.fit(trainSeriesScaled)
 
+print("Rolling forecast incoming...")
+
+fullSeriesScaled = scaler.transform(
+    trainSeries.concatenate(testSeries)
+)
+
+forecast = model.historical_forecasts(
+    series=fullSeriesScaled,
+    start=testSeries.start_time(),
+    forecast_horizon=1,
+    stride=1,
+    retrain=False,
+    last_points_only=True
+)
+
+forecast = scaler.inverse_transform(forecast)
 forecastDf = forecast.to_dataframe()
-print(forecastDf.head(10))
 
 evaluationDf = pd.concat(
     [
@@ -795,35 +933,34 @@ evaluationDf = pd.concat(
         forecastDf["amount"].rename("prediction")
     ],
     axis=1
-)
-
-print(evaluationDf.head(10))
-print(evaluationDf.shape)
-
-evaluationDf=evaluationDf.dropna()
+).dropna()
 
 mae = mean_absolute_error(
-  evaluationDf["actual"],
-  evaluationDf["prediction"]
+    evaluationDf["actual"],
+    evaluationDf["prediction"]
 )
-
 
 rmse = root_mean_squared_error(
-  evaluationDf["actual"],
-  evaluationDf["prediction"]
+    evaluationDf["actual"],
+    evaluationDf["prediction"]
 )
 
-#Mae: 3.452384824555465
-#Rmse: 5.570498681417147
-#<- an incredible lot better than baselinemodels!
-
-print("Shape")
-print(evaluationDf.shape)
-# 3326 × 15 min ≈ 34,9 days. Hole test set is from 28.07. to 02.09., so about 35 days. :check:
-print(f"Mae: {mae}")
-print(f"Rmse: {rmse}")
+print("MAE:", mae)
+print("RMSE:", rmse)
+# Without scaling:
+#MAE: 496.3480563820411
+#RMSE: 509.1358656406034
+# With scaling:
+# MAE 4.92, RMSE:  7.80
 
 
+print(forecastDf.head(20))
+print(forecastDf.describe())
+print("Actual mean:", evaluationDf["actual"].mean())
+print("Prediction mean:", evaluationDf["prediction"].mean())
+print("Actual min/max:", evaluationDf["actual"].min(), evaluationDf["actual"].max())
+print("Prediction min/max:", evaluationDf["prediction"].min(), evaluationDf["prediction"].max())
+#<- that block told me, that the nn calculated the same value for each forecast without scaling.
 
 
 print("Ended")

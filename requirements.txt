@@ -8,3 +8,5 @@ statsmodels
 numpy
 scikit-learn
 darts
+prophet
+darts[torch]
