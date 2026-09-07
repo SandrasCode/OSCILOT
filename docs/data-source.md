@@ -31,3 +31,11 @@ Parkplatz Busparkplatz -> keine Angabe
 Applying the same three-character abbreviation logic:
 "keine Angabe"[:3]  # "kei"
 therefore explains in this case the kei values found in the processed data.
+```
+
+# Additional Resources
+
+## Science papers:
+
+- https://journals.sagepub.com/doi/10.3141/2489-09
+- https://www.sciencedirect.com/science/article/pii/S2352146523012206
