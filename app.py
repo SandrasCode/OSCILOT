@@ -553,7 +553,132 @@ def addWeatherFeatures(df: pd.DataFrame) -> pd.DataFrame:
     Args:
       df: input dataframe, contains the data that exist until now. At least timepoint as index.
       position is assumed Münster for now.
+    Returns:
+      dataframe with... TODO
   """
+
+def getWeatherData(
+  start: pd.Timestamp,
+  end: pd.Timestamp,
+  latitude: float = 51.961563, # default lat, long of münster.
+  longitude: float = 7.628202
+) -> pd.DataFrame:
+
+  if(start > end):
+    raise ValueError("Endtime is prior starttime.")
+
+  def _getForecast(st: pd.Timestamp, en: pd.Timestamp) ->pd.DataFrame:
+    """
+      Gets data from Open Meteo Weather Forecast API, also current and past values, but cuts it
+      to the needed timeperiod, defined by st and en.
+
+      Args:
+        st: start time it calls the API for,
+        en: end time it calls the API for
+      Returns:
+        df with columns 'temperature' and 'precipitation' and timepoint as index.
+    """
+    url = "https://api.open-meteo.com/v1/forecast"
+
+    params = {
+        "latitude": latitude,
+        "longitude": longitude,
+        "minutely_15": "temperature_2m,precipitation",
+        "start_minutely_15": start.strftime("%Y-%m-%dT%H:%M"),
+        "end_minutely_15": end.strftime("%Y-%m-%dT%H:%M"),
+        "past_minutely_15": 5,
+        "current": ["temperature_2m", "precipitation"],
+        "timezone": "Europe/Berlin"
+    }
+
+    response = requests.get(url, params=params)
+    response.raise_for_status()
+
+    data = response.json()
+
+    weatherDf = pd.DataFrame({
+        "temperature": data["minutely_15"]["temperature_2m"],
+        "precipitation": data["minutely_15"]["precipitation"]
+    }, index=pd.to_datetime(data["minutely_15"]["time"]))
+
+    weatherDf.index.name = "timepoint"
+    # cut data to timeframe needed:
+    weatherDf = weatherDf.loc[st:en]
+    return weatherDf
+
+  def _getHistorical(st: pd.Timestamp, en: pd.Timestamp) ->pd.DataFrame:
+    """
+      Gets historical forecast data from the Open-Meteo Historical Forecast API.
+
+      Args:
+          st: start time
+          en: end time
+
+      Returns:
+          DataFrame with columns 'temperature' and 'precipitation'
+          and timepoint as index.
+    """
+
+    url = "https://historical-forecast-api.open-meteo.com/v1/forecast"
+
+    params = {
+      "latitude": latitude,
+      "longitude": longitude,
+      "minutely_15": "temperature_2m,precipitation",
+      "start_minutely_15": st.strftime("%Y-%m-%dT%H:%M"),
+      "end_minutely_15": en.strftime("%Y-%m-%dT%H:%M"),
+      "timezone": "Europe/Berlin"
+    }
+
+    response = requests.get(url, params=params)
+    response.raise_for_status()
+
+    data = response.json()
+
+    weatherDf = pd.DataFrame({
+      "temperature": data["minutely_15"]["temperature_2m"],
+      "precipitation": data["minutely_15"]["precipitation"]
+    }, index=pd.to_datetime(data["minutely_15"]["time"]))
+
+    weatherDf.index.name = "timepoint"
+    return weatherDf
+
+  # case 1: start is now, and end in future
+  # case 2: start is already in the future and end too
+  # -> case 1 and 2 are one case, both doable with open meteo forecast
+  # case 3: start is in past, end in the future or now
+  # -> a) if past is more than an hour i need historical api otherwise b) forecast api with past_minutely_15 = 5 is just fine
+  # case 4: start is in the past, end too, but before
+  # -> historical api
+  # case 5: some time is earlier than some specific to-be-found-out point in 2022 then i need meteostat
+
+  now = pd.Timestamp.now()
+  oneHourAgo = now - pd.Timedelta(hours=1)
+
+  if start >= now:
+    # case 1 and 2.
+    weatherDf = _getForecast(st=start, en=end)
+  elif end <= now:
+    # case 4:
+    # start and end are both in the past
+    weatherDf = _getHistorical(st=start, en=end)
+  else:
+    # case 3:
+    if start < oneHourAgo:
+      # case 3 a).
+      historicalEnd = oneHourAgo
+      forecastStart = oneHourAgo + pd.Timedelta(minutes=15)
+      pastDf = _getHistorical(st=start, en=historicalEnd)
+      futureDf = _getForecast(st=forecastStart, en=end)
+      weatherDf = pd.concat([pastDf, futureDf])
+    else:
+      # case 3 b:
+      weatherDf = _getForecast(st=start, en=end)
+
+  # case 5 is postponed for now
+
+
+  return weatherDf
 
 def enrichData(df: pd.DataFrame) -> pd.DataFrame:
   df = addTimeFeatures(df)
