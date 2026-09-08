@@ -508,6 +508,45 @@ def predictWeekdayBaselineValues(df: pd.DataFrame, predictionTimepoints: pd.Seri
     returnvalue.loc[each, 'amount'] = res
   return returnvalue
 
+
+def addTimeFeatures(df: pd.DataFrame) -> pd.DataFrame:
+  """
+    Adds sin and cos of time. That time is represented cyclical for better learing abilities
+    for the model
+
+    Args:
+      df: input dataframe, contains the data that exist until now. At least timepoint as index.
+      Position is assumed Münster for now.
+  """
+  minutes = (
+  #  df["timepoint"].dt.hour * 60
+  #  + df["timepoint"].dt.minute
+    df.index.hour * 60
+    + df.index.minute
+  )
+
+  df["time_sin"] = np.sin(
+      2 * np.pi * minutes / (24 * 60)
+  )
+
+  df["time_cos"] = np.cos(
+      2 * np.pi * minutes / (24 * 60)
+  )
+
+def addWeatherFeatures(df: pd.DataFrame) -> pd.DataFrame:
+  """
+    Adds weather data to the df.
+
+    Args:
+      df: input dataframe, contains the data that exist until now. At least timepoint as index.
+      position is assumed Münster for now.
+  """
+
+def enrichData(df: pd.DataFrame) -> pd.DataFrame:
+  df = addTimeFeatures(df)
+  df = addWeatherFeatures(df)
+  return df
+
 #-----------------------------------
 # Call everything!
 #-----------------------------------
