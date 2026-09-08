@@ -556,6 +556,7 @@ def addWeatherFeatures(df: pd.DataFrame) -> pd.DataFrame:
     Returns:
       dataframe with... TODO
   """
+    # getWeatherData and do somthing with it.
 
 def getWeatherData(
   start: pd.Timestamp,
@@ -563,7 +564,34 @@ def getWeatherData(
   latitude: float = 51.961563, # default lat, long of münster.
   longitude: float = 7.628202
 ) -> pd.DataFrame:
+  """
+    Gets weather data for a given time period and location.
 
+    Depending on the requested time period, the appropriate weather
+    data source is selected:
+      - Open-Meteo Forecast API for current and future data
+      - Open-Meteo Historical Forecast API for historical forecast data
+      - Meteostat for historical periods not covered by the
+        Open-Meteo Historical Forecast API (planned)
+
+    If the requested period spans from the past into the future,
+    data from the appropriate historical and forecast sources is
+    combined.
+
+    Args:
+        start: Start of the requested time period.
+        end: End of the requested time period.
+        latitude: Latitude of the requested location.
+        longitude: Longitude of the requested location.
+
+    Returns:
+        DataFrame with 'temperature' and 'precipitation' as columns
+        and the requested timestamps as index.
+
+    Raises:
+        ValueError: If end is earlier than start.
+        requests.HTTPError: If a weather API request fails.
+  """
   if(start > end):
     raise ValueError("Endtime is prior starttime.")
 
@@ -675,7 +703,7 @@ def getWeatherData(
       # case 3 b:
       weatherDf = _getForecast(st=start, en=end)
 
-  # case 5 is postponed for now
+  #TODO: case 5 is postponed for now
 
 
   return weatherDf
