@@ -511,12 +511,16 @@ def predictWeekdayBaselineValues(df: pd.DataFrame, predictionTimepoints: pd.Seri
 
 def addTimeFeatures(df: pd.DataFrame) -> pd.DataFrame:
   """
-    Adds sin and cos of time. That time is represented cyclical for better learing abilities
-    for the model
+    Adds sin and cos of time and weekday. Both features are represented cyclical for better
+    learing abilities for the model
 
     Args:
       df: input dataframe, contains the data that exist until now. At least timepoint as index.
       Position is assumed Münster for now.
+
+    Returns:
+      dataframe with all features that came in from args and additionally features time_sin,
+      time_cos, weekday_sin and weekday_cos.
   """
   minutes = (
   #  df["timepoint"].dt.hour * 60
@@ -532,6 +536,15 @@ def addTimeFeatures(df: pd.DataFrame) -> pd.DataFrame:
   df["time_cos"] = np.cos(
       2 * np.pi * minutes / (24 * 60)
   )
+
+  df["weekday_sin"] = np.sin(
+    2 * np.pi * df.index.dayofweek / 7
+  )
+
+  df["weekday_cos"] = np.cos(
+      2 * np.pi * df.index.dayofweek / 7
+  )
+  return df
 
 def addWeatherFeatures(df: pd.DataFrame) -> pd.DataFrame:
   """
