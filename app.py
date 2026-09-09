@@ -763,6 +763,93 @@ def prophetModelEvaluation(trainDf: pd.DataFrame, testDfProphet: pd.DataFrame):
   #  mae: 43.966595656221706, rmse: 58.81863581832422
   # dissapointing
 
+def rnnModelEvaluation(trainDf: pd.DataFrame, testDf: pd.DataFrame):
+
+  print("________________")
+  print("RNN MODEL")
+  print("________________")
+
+  trainSeries = TimeSeries.from_dataframe(
+      trainDf.reset_index(),
+      time_col="timepoint",
+      value_cols="amount"
+  )
+
+  testSeries = TimeSeries.from_dataframe(
+      testDf.reset_index(),
+      time_col="timepoint",
+      value_cols="amount"
+  )
+
+  model = RNNModel(
+      model="LSTM",
+      input_chunk_length=96,
+      output_chunk_length=1,
+      training_length=96,
+      n_rnn_layers=1,
+      hidden_dim=25,
+      n_epochs=10,
+      random_state=42
+  )
+
+  scaler = Scaler()
+  trainSeriesScaled = scaler.fit_transform(trainSeries)
+
+  model.fit(trainSeriesScaled)
+
+  print("Rolling forecast incoming...")
+
+  fullSeriesScaled = scaler.transform(
+      trainSeries.concatenate(testSeries)
+  )
+
+  forecast = model.historical_forecasts(
+      series=fullSeriesScaled,
+      start=testSeries.start_time(),
+      forecast_horizon=1,
+      stride=1,
+      retrain=False,
+      last_points_only=True
+  )
+
+  forecast = scaler.inverse_transform(forecast)
+  forecastDf = forecast.to_dataframe()
+
+  evaluationDf = pd.concat(
+      [
+          testDf["amount"].rename("actual"),
+          forecastDf["amount"].rename("prediction")
+      ],
+      axis=1
+  ).dropna()
+
+  mae = mean_absolute_error(
+      evaluationDf["actual"],
+      evaluationDf["prediction"]
+  )
+
+  rmse = root_mean_squared_error(
+      evaluationDf["actual"],
+      evaluationDf["prediction"]
+  )
+
+  print("MAE:", mae)
+  print("RMSE:", rmse)
+  # Without scaling:
+  #MAE: 496.3480563820411
+  #RMSE: 509.1358656406034
+  # With scaling:
+  # MAE 4.92, RMSE:  7.80
+
+
+  print(forecastDf.head(20))
+  print(forecastDf.describe())
+  print("Actual mean:", evaluationDf["actual"].mean())
+  print("Prediction mean:", evaluationDf["prediction"].mean())
+  print("Actual min/max:", evaluationDf["actual"].min(), evaluationDf["actual"].max())
+  print("Prediction min/max:", evaluationDf["prediction"].min(), evaluationDf["prediction"].max())
+  #<- that block told me, that the nn calculated the same value for each forecast without scaling.
+
 
 def addTimeFeatures(df: pd.DataFrame) -> pd.DataFrame:
   """
@@ -1151,80 +1238,7 @@ weeklyBaselineModelEvaluation(trainDf, testDf)
 # RNN Model
 #-----------------------------------
 
-print("________________")
-print("RNN MODEL")
-print("________________")
-
-
-model = RNNModel(
-    model="LSTM",
-    input_chunk_length=96,
-    output_chunk_length=1,
-    training_length=96,
-    n_rnn_layers=1,
-    hidden_dim=25,
-    n_epochs=10,
-    random_state=42
-)
-
-scaler = Scaler()
-trainSeriesScaled = scaler.fit_transform(trainSeries)
-
-model.fit(trainSeriesScaled)
-
-print("Rolling forecast incoming...")
-
-fullSeriesScaled = scaler.transform(
-    trainSeries.concatenate(testSeries)
-)
-
-forecast = model.historical_forecasts(
-    series=fullSeriesScaled,
-    start=testSeries.start_time(),
-    forecast_horizon=1,
-    stride=1,
-    retrain=False,
-    last_points_only=True
-)
-
-forecast = scaler.inverse_transform(forecast)
-forecastDf = forecast.to_dataframe()
-
-evaluationDf = pd.concat(
-    [
-        testDf["amount"].rename("actual"),
-        forecastDf["amount"].rename("prediction")
-    ],
-    axis=1
-).dropna()
-
-mae = mean_absolute_error(
-    evaluationDf["actual"],
-    evaluationDf["prediction"]
-)
-
-rmse = root_mean_squared_error(
-    evaluationDf["actual"],
-    evaluationDf["prediction"]
-)
-
-print("MAE:", mae)
-print("RMSE:", rmse)
-# Without scaling:
-#MAE: 496.3480563820411
-#RMSE: 509.1358656406034
-# With scaling:
-# MAE 4.92, RMSE:  7.80
-
-
-print(forecastDf.head(20))
-print(forecastDf.describe())
-print("Actual mean:", evaluationDf["actual"].mean())
-print("Prediction mean:", evaluationDf["prediction"].mean())
-print("Actual min/max:", evaluationDf["actual"].min(), evaluationDf["actual"].max())
-print("Prediction min/max:", evaluationDf["prediction"].min(), evaluationDf["prediction"].max())
-#<- that block told me, that the nn calculated the same value for each forecast without scaling.
-
+rnnModelEvaluation(trainDf, testDf)
 
 print("Ended")
 # following needed for development with docker compose watch:
