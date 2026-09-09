@@ -888,18 +888,6 @@ def addTimeFeatures(df: pd.DataFrame) -> pd.DataFrame:
   )
   return df
 
-def addWeatherFeatures(df: pd.DataFrame) -> pd.DataFrame:
-  """
-    Adds weather data to the df.
-
-    Args:
-      df: input dataframe, contains the data that exist until now. At least timepoint as index.
-      position is assumed Münster for now.
-    Returns:
-      dataframe with... TODO
-  """
-    # getWeatherData and do somthing with it.
-
 def getWeatherData(
   start: pd.Timestamp,
   end: pd.Timestamp,
@@ -1050,10 +1038,30 @@ def getWeatherData(
       #print("Case 3 b, _getForecast")
       weatherDf = _getForecast(st=start, en=end)
 
-  #TODO: case 5 is postponed for now
+  #Info: case 5 is postponed for now as it looks that open meteo historical
+  #forecast api has all the data needed
 
 
   return weatherDf
+
+def addWeatherFeatures(df: pd.DataFrame) -> pd.DataFrame:
+  """
+    Adds weather data to the df.
+
+    Args:
+      df: input dataframe, contains the data that exist until now. At least timepoint as index.
+      position is assumed Münster for now.
+    Returns:
+      dataframe with all columns from df and additional columns temperature and precipitation.
+  """
+  if df.empty:
+    return df.copy() # as it would be a problem if df is empty for iloc.
+  df = df.sort_index()
+  start = df.index[0]
+  end = df.index[-1]
+  weatherDf = getWeatherData(start, end)
+  returnDf = pd.concat([df, weatherDf], axis=1)
+  return returnDf
 
 def enrichData(df: pd.DataFrame) -> pd.DataFrame:
   df = addTimeFeatures(df)
