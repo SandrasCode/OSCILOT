@@ -1268,13 +1268,18 @@ timeseriesDf.loc[
 ) / 2
 
 #__________________
-#Test split
+#Enrich data with weather and time features
 #__________________
-
 
 timeseriesDf = enrichData(timeseriesDf)
 print("timeseries with timestuff and weatherstuff")
+pd.set_option("display.max_columns", None)
 print(timeseriesDf)
+
+#__________________
+#Test split
+#__________________
+
 
 splitIndex = int(len(timeseriesDf) * 0.8)
 trainDf = timeseriesDf.iloc[:splitIndex].copy()
