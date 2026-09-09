@@ -717,6 +717,9 @@ def enrichData(df: pd.DataFrame) -> pd.DataFrame:
 # Call everything!
 #-----------------------------------
 
+#__________________
+#Reset Database and gett all Data
+#__________________
 #worked = resetDatabaseAndImportAllData()
 #message = "Import worked fine" if worked else "Import had a problem"
 #print(message)
@@ -724,25 +727,36 @@ def enrichData(df: pd.DataFrame) -> pd.DataFrame:
 # It takes a long time to get all the data:
 #lotsDf = getLots(getEngine())
 #print("got lots")
-
 #so i built this guy:
+#__________________
+#Get Data from Parkinspace 1
+#__________________
 lotsDf = getLotsOfParkinspaceNo(getEngine(), 1)
 print("got lots from 1")
 
+#__________________
+#Analyze data visually
+#__________________
 #analyzeDataOfLots(lotsDf)
 
+#__________________
+#Analyse structure of data
+#__________________
 #print("Status value count")
 #print(lotsDf["status"].value_counts())
 
-#print("0 werte getrennt")
+#print("0-values separately")
 #print(lotsDf[ lotsDf["amount"] == 0 ]["status"].value_counts())
 
-#print("Was ist mit amount - describe")
+#print("whats with amount - describe")
 #print(lotsDf["amount"].describe())
 
-#print("Wie regelmässig")
+#print("how regular is my data")
 #print(lotsDf["timepoint"].sort_values().diff().value_counts())
 
+#__________________
+#Look at specific data
+#__________________
 #current = lotsDf[
 #    (lotsDf["timepoint"] >= "2026-03-10") &
 #    (lotsDf["status"] != "ges")
@@ -753,27 +767,37 @@ print("got lots from 1")
 #print(current.head())
 #print(current.tail())
 
-#print("Anzahl:", len(current))
-#print("Von:", current["timepoint"].min())
-#print("Bis:", current["timepoint"].max())
+#print("Amount:", len(current))
+#print("From:", current["timepoint"].min())
+#print("To:", current["timepoint"].max())
 
 #print("\nStatus:")
 #print(current["status"].value_counts())
 
-#print("\nAbstände:")
+#print("\ndistances:")
 #print(current["timepoint"].diff().value_counts().head(20))
 
+#__________________
+#Change type of timepoint to datetime (comming from database it wasnt yet)
+#__________________
 #Timepoint is datetime
 lotsDf["timepoint"] = pd.to_datetime(lotsDf["timepoint"])
 
+#__________________
+#Defined time period for Experiment 0
+#__________________
 # 0st experiment: #2026-03-10 ─────────────────────────────────── 2026-09-02
 timeseriesDf = lotsDf.loc[(lotsDf['timepoint'] >= "2026-03-10") & (lotsDf['timepoint'] <= "2026-09-02")]
 
+#__________________
+#Defined time period for Experiment 1
+#__________________
 #1st experiment: Data of the year 2026
 #timeseriesDf = lotsDf.loc[lotsDf['timepoint'] >= "2026-01-01"].copy()
 
-#Create proper timeseries data:
-
+#__________________
+#Clean Data / Create proper timeseries data:
+#__________________
 # 1. remove ges, as it will not be par of our training.
 timeseriesDf = timeseriesDf.loc[timeseriesDf['status'] != 'ges']
 
@@ -788,6 +812,9 @@ timeseriesDf = (
   .sort_index()
 )
 
+#__________________
+#Analyse how many NaN are created by our resampling
+#__________________
 #timeseriesDf = timeseriesDf.reset_index()
 #print(timeseriesDf.head(20))
 #print("amount of NaN")
@@ -796,10 +823,9 @@ timeseriesDf = (
 #print("NaN in amount")
 #print(timeseriesDf[timeseriesDf["amount"].isna()])
 
-#timeseriesDf = timeseriesDf.sort_values("timepoint")
-#<- should be wrong here because timepoint is our index now?
-
-# lücken in daten untersuchen:
+#__________________
+# investigate gaps in data:
+#__________________
 #testDf = timeseriesDf.dropna(subset=["amount"]).sort_index()
 
 #diffs = testDf.index.to_series().diff()
@@ -816,7 +842,9 @@ timeseriesDf = (
 #this point in time, the one 15 before is missing, so 14:15 is missing
 #2026-07-09 01:45:00 2026-07-09 01:45:00 0 days 00:30:00
 
+#__________________
 # 2026-07-09 01:30 - interpolate missing value:
+#__________________
 timeseriesDf.loc[
     "2026-07-09 01:30:00", "amount"
 ] = (
@@ -824,8 +852,9 @@ timeseriesDf.loc[
     + timeseriesDf.loc["2026-07-09 01:45:00", "amount"]
 ) / 2
 
-
+#__________________
 #Test split
+#__________________
 splitIndex = int(len(timeseriesDf) * 0.8)
 trainDf = timeseriesDf.iloc[:splitIndex].copy()
 testDf = timeseriesDf.iloc[splitIndex:].copy()
@@ -833,9 +862,9 @@ testDf = timeseriesDf.iloc[splitIndex:].copy()
 print("Train:", trainDf.index.min(), "->", trainDf.index.max())
 print("Test:", testDf.index.min(), "->", testDf.index.max())
 
-#--------------
+#-----------------------------------
 # Predict Baseline and see MAE and RMSE
-#--------------
+#-----------------------------------
 
 print("________________")
 print("BASELINE MODEL")
@@ -870,9 +899,9 @@ print(evaluationDf.shape)
 print(f"Mae: {mae}")
 print(f"Rmse: {rmse}")
 
-#--------------
+#-----------------------------------
 # Predict Weekly Baseline and see MAE and RMSE
-#--------------
+#-----------------------------------
 
 print("________________")
 print("WEEKLY BASELINE MODEL")
@@ -907,6 +936,9 @@ print(evaluationDf.shape)
 print(f"Mae: {mae}")
 print(f"Rmse: {rmse}")
 
+#-----------------------------------
+# Arima Model
+#-----------------------------------
 print("________________")
 print("ARIMA MODEL")
 print("________________")
@@ -1033,9 +1065,10 @@ print(prediction)
 #print(f"Mae: {mae}")
 #print(f"Rmse: {rmse}")
 
-#--------------------
-# Prophet
-#--------------------
+
+#-----------------------------------
+# Prophet Model
+#-----------------------------------
 
 # I will not use my whole testset. Because of rolling forecast each forecast needs about
 # 2 seconds. Which results in 1,5 hours of running without paralellisation
@@ -1091,7 +1124,9 @@ cutoffs = [
 #  mae: 43.966595656221706, rmse: 58.81863581832422
 # dissapointing
 
-
+#-----------------------------------
+# RNN Model
+#-----------------------------------
 
 print("________________")
 print("RNN MODEL")
