@@ -20,6 +20,7 @@ from prophet import Prophet
 from prophet.diagnostics import cross_validation
 from darts.models import RNNModel
 from darts.dataprocessing.transformers import Scaler
+import joblib
 
 engine = None
 
@@ -1128,6 +1129,51 @@ def testWeatherCases():
     pd.Timestamp("2019-01-01 02:00")
   )
 
+def trainAndSaveModel(trainDf: pd.DataFrame) -> RNNModel:
+  print("Train and save rnn model")
+
+  target = TimeSeries.from_dataframe(
+    trainDf.reset_index(),
+    time_col="timepoint",
+    value_cols="amount"
+  )
+
+  covariates = TimeSeries.from_dataframe(
+    trainDf.reset_index(),
+    time_col="timepoint",
+    value_cols=[
+      "time_sin",
+      "time_cos",
+      "weekday_sin",
+      "weekday_cos",
+      "temperature",
+      "precipitation"
+    ]
+  )
+
+  model = RNNModel(
+    model="LSTM",
+    input_chunk_length=96,
+    output_chunk_length=1,
+    training_length=96,
+    n_rnn_layers=1,
+    hidden_dim=25,
+    n_epochs=10,
+    random_state=42
+  )
+
+  targetScaler = Scaler()
+  covariatesScaler = Scaler()
+  targetScaled = targetScaler.fit_transform(target)
+  covariatesScaled = covariatesScaler.fit_transform(covariates)
+
+  model.fit(targetScaled, future_covariates=covariatesScaled)
+  model.save("output/models/parking_rnn")
+  joblib.dump(targetScaler, "output/models/parking_rnn_target_scaler.pkl")
+  joblib.dump(covariatesScaler, "output/models/parking_rnn_covariates_scaler.pkl")
+
+  return model
+
 #-----------------------------------
 # Call everything!
 #-----------------------------------
@@ -1328,6 +1374,9 @@ weeklyBaselineModelEvaluation(trainDf, testDf)
 # Test getWeatherData
 #-----------------------------------
 #testWeatherCases()
+
+rnnModel = trainAndSaveModel(trainDf)
+
 
 
 
