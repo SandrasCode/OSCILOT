@@ -98,7 +98,7 @@ def getEngine() -> Engine:
 
 
 
-def getAllDataFromParkingDecks() -> pd.DataFrame:
+def getAllDataFromParkingDecks() -> tuple[pd.DataFrame, pd.Timestamp]:
   """
     Retrieves historical data from 2019 to the latest available date,
     which is typically about one day behind the current date.
@@ -106,6 +106,7 @@ def getAllDataFromParkingDecks() -> pd.DataFrame:
 
     Returns:
       DataFrame with all informations.
+      Timestamp which represents the last date i have data from
   """
   api_url = "https://api.github.com/repos/codeformuenster/parking-decks-muenster/contents/data"
   def get_csv_files(url):
@@ -114,14 +115,18 @@ def getAllDataFromParkingDecks() -> pd.DataFrame:
     print("Begin getting files")
     for file in response.json():
       if file["type"] == "file" and file["name"].endswith(".csv"):
-        yield file["download_url"]
+        fileDate = pd.to_datetime(file["name"].removesuffix(".csv")).date()
+        yield fileDate, file["download_url"]
         #break #this is to only get first file for debug purposes
       elif file["type"] == "dir":
         yield from get_csv_files(file["url"])
 
   dataframes = []
+  latestDate = None
 
-  for csv_url in get_csv_files(api_url):
+  for fileDate, csv_url in get_csv_files(api_url):
+    if latestDate is None or fileDate > latestDate:
+      latestDate = fileDate
     csv_response = requests.get(csv_url)
     csv_response.raise_for_status()
     print(f"Downloading CSV: {csv_url}")
@@ -133,7 +138,12 @@ def getAllDataFromParkingDecks() -> pd.DataFrame:
     return pd.DataFrame()
   print("Concatenate files to dataframe")
   df = pd.concat(dataframes, ignore_index=True, sort=False) #slightly more efficient with collecting data and concatening all at once.
-  return df #hopefully this works? this will be a heck of a dataframe maybe later just slice the new stuff?
+
+  # TODO: setSystemInfo("parking_data_last_date", latestDate)
+  return df, pd.Timestamp(latestDate) #hopefully this works? this will be a heck of a dataframe maybe later just slice the new stuff?
+
+
+
 
 
 def saveDataFrameToDB(engine: Engine, df: pd.DataFrame, table_name: str) -> bool:
@@ -258,7 +268,7 @@ def resetDatabaseAndImportAllData() -> bool:
   returnvalue = False
   engine = initDatabase(resetDb=True)
   print("Database initialized")
-  dataFromWebDf = getAllDataFromParkingDecks()
+  dataFromWebDf, lastDate = getAllDataFromParkingDecks()
   print("Got data")
   parkingspacesDf, lotsDf = prepareDataForDB(dataFromWebDf)
   print("prepared data")
@@ -268,9 +278,29 @@ def resetDatabaseAndImportAllData() -> bool:
   lotsSucc = saveDataFrameToDB(engine, lotsDf, 'lots')
   if(lotsSucc):
     print("Saving lots data successful!")
-  if(parkSucc & lotsSucc):
+    systemDf = pd.DataFrame({'key_name': 'parking_data_last_date', 'value': lastDate})
+    systemSucc = saveDataFrameToDB(engine, systemDf, 'system_info')
+  if(parkSucc and lotsSucc and systemSucc):
     returnvalue = True
   return returnvalue
+
+def updateDatabase():
+  # something like this:
+  #lastDbTimestamp = getLastTimestampFromDb()#
+
+  # investigate source
+  #lastSourceTimestamp = ...
+
+  #if lastSourceTimestamp <= lastDbTimestamp:
+  #    return
+
+  #newData = getParkingData(
+  #    lastDbTimestamp,
+  #    lastSourceTimestamp
+  #)
+
+  #saveToDatabase(newData)
+
 
 def analyzeDataOfLots(lotsDf: pd.DataFrame):
   """
