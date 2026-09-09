@@ -10,3 +10,4 @@ scikit-learn
 darts
 prophet
 darts[torch]
+joblib
