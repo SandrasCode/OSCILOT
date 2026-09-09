@@ -43,4 +43,7 @@ CREATE TABLE lots (
     FOREIGN KEY (parkingId) REFERENCES parkingspaces(id)
  );
 
-
+CREATE TABLE system_info (
+    key_name VARCHAR(255) PRIMARY KEY,
+    value VARCHAR(255) NOT NULL
+);
