@@ -510,7 +510,7 @@ def predictWeekdayBaselineValues(df: pd.DataFrame, predictionTimepoints: pd.Seri
 
 def baselineModelEvaluation(trainDf: pd.DataFrame, testDf: pd.DataFrame):
   """
-    Tests the baseline model and prints out results.
+    Tests the baseline model and prints out results. Model looks at 15 minutes prior to estimate.
     Args:
       trainDf: df to train with, at least it has to have column 'amount' and timepoint as index.
       testDf: df to test with, at least it has to have column 'amount' and timepoint as index.
@@ -541,6 +541,46 @@ def baselineModelEvaluation(trainDf: pd.DataFrame, testDf: pd.DataFrame):
     evaluationDf["prediction"]
   )
   # for parkingId 1: 122 lots, rmse > mae, meaning: there are some bigger errors.
+
+  print("Shape")
+  print(evaluationDf.shape)
+  # 3326 × 15 min ≈ 34,9 days. Hole test set is from 28.07. to 02.09., so about 35 days. :check:
+  print(f"Mae: {mae}")
+  print(f"Rmse: {rmse}")
+
+def weeklyBaselineModelEvaluation(trainDf: pd.DataFrame, testDf: pd.DataFrame):
+  """
+    Tests the weekly baseline model and prints out results. Model looks at the same time a week ago.
+    Args:
+      trainDf: df to train with, at least it has to have column 'amount' and timepoint as index.
+      testDf: df to test with, at least it has to have column 'amount' and timepoint as index.
+  """
+  print("________________")
+  print("WEEKLY BASELINE MODEL")
+  print("________________")
+  predictedValues = predictWeekdayBaselineValues(trainDf, testDf.index.to_series())
+  #<- gives me a df with index Timepoints and amount column
+
+  # Test only those where we have values:
+  evaluationDf = pd.concat(
+    [
+        testDf["amount"].rename("actual"),
+        predictedValues["amount"].rename("prediction")
+    ],
+    axis=1
+  ).dropna()
+
+  mae = mean_absolute_error(
+    evaluationDf["actual"],
+    evaluationDf["prediction"]
+  )
+
+
+  rmse = root_mean_squared_error(
+    evaluationDf["actual"],
+    evaluationDf["prediction"]
+  )
+  # weekly is in rmse and mae slightly better than baseline
 
   print("Shape")
   print(evaluationDf.shape)
@@ -910,39 +950,7 @@ baselineModelEvaluation(trainDf, testDf)
 #-----------------------------------
 # Predict Weekly Baseline and see MAE and RMSE
 #-----------------------------------
-
-print("________________")
-print("WEEKLY BASELINE MODEL")
-print("________________")
-predictedValues = predictWeekdayBaselineValues(trainDf, testDf.index.to_series())
-#<- gives me a df with index Timepoints and amount column
-
-# Test only those where we have values:
-evaluationDf = pd.concat(
-  [
-      testDf["amount"].rename("actual"),
-      predictedValues["amount"].rename("prediction")
-  ],
-  axis=1
-).dropna()
-
-mae = mean_absolute_error(
-  evaluationDf["actual"],
-  evaluationDf["prediction"]
-)
-
-
-rmse = root_mean_squared_error(
-  evaluationDf["actual"],
-  evaluationDf["prediction"]
-)
-# weekly is in rmse and mae slightly better than baseline
-
-print("Shape")
-print(evaluationDf.shape)
-# 3326 × 15 min ≈ 34,9 days. Hole test set is from 28.07. to 02.09., so about 35 days. :check:
-print(f"Mae: {mae}")
-print(f"Rmse: {rmse}")
+weeklyBaselineModelEvaluation(trainDf, testDf)
 
 #-----------------------------------
 # Arima Model
