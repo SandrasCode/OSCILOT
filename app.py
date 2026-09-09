@@ -959,7 +959,7 @@ def getWeatherData(
     weatherDf = pd.DataFrame({
         "temperature": data["minutely_15"]["temperature_2m"],
         "precipitation": data["minutely_15"]["precipitation"]
-    }, index=pd.to_datetime(data["minutely_15"]["time"]).tz_localize("Europe/Berlin"))
+    }, index=pd.to_datetime(data["minutely_15"]["time"]))
 
     weatherDf.index.name = "timepoint"
     # cut data to timeframe needed:
@@ -998,7 +998,7 @@ def getWeatherData(
     weatherDf = pd.DataFrame({
       "temperature": data["minutely_15"]["temperature_2m"],
       "precipitation": data["minutely_15"]["precipitation"]
-    }, index=pd.to_datetime(data["minutely_15"]["time"]).tz_localize("Europe/Berlin"))
+    }, index=pd.to_datetime(data["minutely_15"]["time"]))
 
     weatherDf.index.name = "timepoint"
     return weatherDf
@@ -1012,7 +1012,7 @@ def getWeatherData(
   # -> historical api
   # case 5: some time is earlier than some specific to-be-found-out point in 2022 then i need meteostat
 
-  now = pd.Timestamp.now(tz="Europe/Berlin")
+  now = pd.Timestamp.now(tz="Europe/Berlin").tz_localize(None)
   oneHourAgo = (now - pd.Timedelta(hours=1)).floor("15min")
   if start >= now:
     # case 1 and 2.
@@ -1067,6 +1067,66 @@ def enrichData(df: pd.DataFrame) -> pd.DataFrame:
   df = addTimeFeatures(df)
   df = addWeatherFeatures(df)
   return df
+
+def printWeatherTest(name, start, end):
+  print(f"\n{'=' * 50}")
+  print(name)
+  print(f"Requested: {start} -> {end}")
+  print("NOW:", pd.Timestamp.now())
+  try:
+    df = getWeatherData(
+      start=start,
+      end=end
+    )
+
+    print(f"Returned:  {df.index.min()} -> {df.index.max()}")
+    print(f"Rows:      {len(df)}")
+    print(f"Columns:   {list(df.columns)}")
+    print()
+    print(df.head())
+    print("...")
+    print(df.tail())
+
+  except Exception as e:
+    print(f"ERROR: {type(e).__name__}: {e}")
+
+
+def testWeatherCases():
+  now = pd.Timestamp.now(tz="Europe/Berlin").tz_localize(None).floor("15min")
+  # 1. Future -> Future
+  printWeatherTest(
+    "TEST 1: Future",
+    now + pd.Timedelta(minutes=30),
+    now + pd.Timedelta(hours=2)
+  )
+  # 2. Past -> Past
+  printWeatherTest(
+    "TEST 2: Historical",
+    now - pd.Timedelta(days=2),
+    now - pd.Timedelta(days=2) + pd.Timedelta(hours=2)
+  )
+  # 3. Past -> Future, more than one hour in the past
+  printWeatherTest(
+    "TEST 3: Past -> Future",
+    now - pd.Timedelta(hours=2),
+    now + pd.Timedelta(hours=2)
+  )
+  # 4. Past -> Future, but past is less than one hour ago
+  printWeatherTest(
+    "TEST 4: Recent Past -> Future",
+    now - pd.Timedelta(minutes=30),
+    now + pd.Timedelta(hours=2)
+  )
+  printWeatherTest(
+    "TEST 5: rainy day",
+    pd.Timestamp("2026-09-13 13:00"),
+    pd.Timestamp("2026-09-13 18:00")
+  )
+  printWeatherTest(
+    "TEST 6: Start of Dataset",
+    pd.Timestamp("2019-01-01"),
+    pd.Timestamp("2019-01-01 02:00")
+  )
 
 #-----------------------------------
 # Call everything!
@@ -1210,6 +1270,12 @@ timeseriesDf.loc[
 #__________________
 #Test split
 #__________________
+
+
+timeseriesDf = enrichData(timeseriesDf)
+print("timeseries with timestuff and weatherstuff")
+print(timeseriesDf)
+
 splitIndex = int(len(timeseriesDf) * 0.8)
 trainDf = timeseriesDf.iloc[:splitIndex].copy()
 testDf = timeseriesDf.iloc[splitIndex:].copy()
@@ -1253,78 +1319,13 @@ weeklyBaselineModelEvaluation(trainDf, testDf)
 #Remind you, this is only the evaluation!
 #rnnModelEvaluation(trainDf, testDf)
 
-
-def printWeatherTest(name, start, end):
-    print(f"\n{'=' * 50}")
-    print(name)
-    print(f"Requested: {start} -> {end}")
-    print("NOW:", pd.Timestamp.now())
-    try:
-        df = getWeatherData(
-            start=start,
-            end=end
-        )
-
-        print(f"Returned:  {df.index.min()} -> {df.index.max()}")
-        print(f"Rows:      {len(df)}")
-        print(f"Columns:   {list(df.columns)}")
-        print()
-        print(df.head())
-        print("...")
-        print(df.tail())
-
-    except Exception as e:
-        print(f"ERROR: {type(e).__name__}: {e}")
+#-----------------------------------
+# Test getWeatherData
+#-----------------------------------
+#testWeatherCases()
 
 
 
-
-def testWeatherCases():
-  now = pd.Timestamp.now(tz="Europe/Berlin").floor("15min")
-  # 1. Future -> Future
-  printWeatherTest(
-      "TEST 1: Future",
-      now + pd.Timedelta(minutes=30),
-      now + pd.Timedelta(hours=2)
-  )
-
-
-  # 2. Past -> Past
-  printWeatherTest(
-      "TEST 2: Historical",
-      now - pd.Timedelta(days=2),
-      now - pd.Timedelta(days=2) + pd.Timedelta(hours=2)
-  )
-
-
-  # 3. Past -> Future, more than one hour in the past
-  printWeatherTest(
-      "TEST 3: Past -> Future",
-      now - pd.Timedelta(hours=2),
-      now + pd.Timedelta(hours=2)
-  )
-
-
-  # 4. Past -> Future, but past is less than one hour ago
-  printWeatherTest(
-      "TEST 4: Recent Past -> Future",
-      now - pd.Timedelta(minutes=30),
-      now + pd.Timedelta(hours=2)
-  )
-
-  printWeatherTest(
-    "TEST 5: rainy day",
-    pd.Timestamp("2026-09-13 13:00", tz="Europe/Berlin"),
-    pd.Timestamp("2026-09-13 18:00", tz="Europe/Berlin")
-)
-
-  printWeatherTest(
-      "TEST 6: Start of Dataset",
-      pd.Timestamp("2019-01-01", tz="Europe/Berlin"),
-      pd.Timestamp("2019-01-01 02:00", tz="Europe/Berlin")
-  )
-
-  #testWeatherCases()
 print("Ended")
 # following needed for development with docker compose watch:
 import time
