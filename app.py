@@ -588,6 +588,131 @@ def weeklyBaselineModelEvaluation(trainDf: pd.DataFrame, testDf: pd.DataFrame):
   print(f"Mae: {mae}")
   print(f"Rmse: {rmse}")
 
+def arimaModelEvaluation(trainDf: pd.DataFrame, testDf: pd.DataFrame):
+  print("________________")
+  print("ARIMA MODEL")
+  print("________________")
+
+
+  print("NaN training:", trainDf["amount"].isna().sum())
+  print("NaN test:", testDf["amount"].isna().sum())
+
+  validTrain = trainDf.dropna(subset=["amount"]).copy()
+  validTrain = validTrain.reset_index()
+  validTrain["diff"] = validTrain["timepoint"].diff()
+
+  print(
+      validTrain.loc[
+          validTrain["diff"] > pd.Timedelta("15min"),
+          ["timepoint", "diff"]
+      ]
+  )
+  # in my experimentation data i have holes:
+  #server-1  |                timepoint            diff
+  #server-1  | 1832 2026-03-29 03:00:00 0 days 01:15:00
+  #server-1  | 3384 2026-04-14 07:45:00 0 days 01:00:00
+  #server-1  | 4631 2026-04-27 09:00:00 0 days 01:45:00
+  #server-1  | 4635 2026-04-27 11:00:00 0 days 01:15:00
+  #server-1  | 4770 2026-04-28 23:00:00 0 days 02:30:00
+
+  #<- those are a problem for arima, so i only use data from 29.04.26 onwards.
+  trainDf = trainDf.loc[trainDf.index >= pd.Timestamp("2026-04-29")]
+  #<- this works, because i first changed timepoint to_datetime and then made an index out of it
+  #so it is a datetimeindex! (yes this exists...)
+
+  print("NaN training:", trainDf["amount"].isna().sum())
+  print(
+      "Train:",
+      trainDf.min(),
+      "->",
+      trainDf.max()
+  )
+
+  print("Where are those")
+  tmp = trainDf.reset_index()
+  print(tmp.loc[tmp["amount"].isna(), ["timepoint", "amount"]])
+
+  print("I'm going off the rails on a \033[90mcrazy\033[0m valid train")
+  validTrain = trainDf.reset_index().dropna(subset=["amount"]).copy()
+  validTrain["diff"] = validTrain["timepoint"].diff()
+
+  print(
+      validTrain.loc[
+          validTrain["diff"] > pd.Timedelta("15min"),
+          ["timepoint", "diff"]
+      ]
+  )
+
+  trainSeries = TimeSeries.from_dataframe(
+      trainDf.reset_index(),
+      time_col="timepoint",
+      value_cols="amount"
+  )
+
+  testSeries = TimeSeries.from_dataframe(
+      testDf.reset_index(),
+      time_col="timepoint",
+      value_cols="amount"
+  )
+
+  model = ARIMA(p=1, d=1, q=1)
+  model.fit(trainSeries)
+  prediction = model.predict(n=1)
+  print("predict...")
+  print(prediction)
+
+  #Beware of the 10 minute waiting game:
+  #Now: Rolling / One step ahead forecast
+  print("Rolling forecast incoming... (might need a few minutes) or like 10")
+  fullSeries = trainSeries.concatenate(testSeries)
+  forecast = model.historical_forecasts(
+    series=fullSeries,
+    start=testSeries.start_time(), #prediction starts at timepoint of testdata
+    forecast_horizon=1, # only one step in the future for the moment = 15m
+    stride=1, # only one step at each time.
+    retrain=False, #dont retrain on every step. it is pre trained it is not needed.
+    last_points_only=True # get only last point, because of forecast_horizon 1 it is the case anyway
+  )
+
+  print(forecast)
+
+  forecastDf = forecast.to_dataframe()
+  print(forecastDf.head(10))
+
+  evaluationDf = pd.concat(
+      [
+          testDf["amount"].rename("actual"),
+          forecastDf["amount"].rename("prediction")
+      ],
+      axis=1
+  )
+
+  print(evaluationDf.head(10))
+  print(evaluationDf.shape)
+
+  evaluationDf=evaluationDf.dropna()
+
+  mae = mean_absolute_error(
+    evaluationDf["actual"],
+    evaluationDf["prediction"]
+  )
+
+
+  rmse = root_mean_squared_error(
+    evaluationDf["actual"],
+    evaluationDf["prediction"]
+  )
+
+  #Mae: 3.452384824555465
+  #Rmse: 5.570498681417147
+  #<- an incredible lot better than baselinemodels!
+
+  print("Shape")
+  print(evaluationDf.shape)
+  # 3326 × 15 min ≈ 34,9 days. Hole test set is from 28.07. to 02.09., so about 35 days. :check:
+  print(f"Mae: {mae}")
+  print(f"Rmse: {rmse}")
+
 
 def addTimeFeatures(df: pd.DataFrame) -> pd.DataFrame:
   """
@@ -955,132 +1080,8 @@ weeklyBaselineModelEvaluation(trainDf, testDf)
 #-----------------------------------
 # Arima Model
 #-----------------------------------
-print("________________")
-print("ARIMA MODEL")
-print("________________")
-
-
-print("NaN training:", trainDf["amount"].isna().sum())
-print("NaN test:", testDf["amount"].isna().sum())
-
-validTrain = trainDf.dropna(subset=["amount"]).copy()
-validTrain = validTrain.reset_index()
-validTrain["diff"] = validTrain["timepoint"].diff()
-
-print(
-    validTrain.loc[
-        validTrain["diff"] > pd.Timedelta("15min"),
-        ["timepoint", "diff"]
-    ]
-)
-# in my experimentation data i have holes:
-#server-1  |                timepoint            diff
-#server-1  | 1832 2026-03-29 03:00:00 0 days 01:15:00
-#server-1  | 3384 2026-04-14 07:45:00 0 days 01:00:00
-#server-1  | 4631 2026-04-27 09:00:00 0 days 01:45:00
-#server-1  | 4635 2026-04-27 11:00:00 0 days 01:15:00
-#server-1  | 4770 2026-04-28 23:00:00 0 days 02:30:00
-
-#<- those are a problem for arima, so i only use data from 29.04.26 onwards.
-#trainDf = trainDf.loc[trainDf.index > "2026-04-28"]
-trainDf = trainDf.loc[trainDf.index >= pd.Timestamp("2026-04-29")]
-#<- this works, because i first changed timepoint to_datetime and then made an index out of it
-#so it is a datetimeindex! (yes this exists...)
-
-print("NaN training:", trainDf["amount"].isna().sum())
-print(
-    "Train:",
-    trainDf.min(),
-    "->",
-    trainDf.max()
-)
-
-print("Where are those")
-tmp = trainDf.reset_index()
-print(tmp.loc[tmp["amount"].isna(), ["timepoint", "amount"]])
-
-print("I'm going off the rails on a \033[90mcrazy\033[0m valid train")
-validTrain = trainDf.reset_index().dropna(subset=["amount"]).copy()
-validTrain["diff"] = validTrain["timepoint"].diff()
-
-print(
-    validTrain.loc[
-        validTrain["diff"] > pd.Timedelta("15min"),
-        ["timepoint", "diff"]
-    ]
-)
-
-trainSeries = TimeSeries.from_dataframe(
-    trainDf.reset_index(),
-    time_col="timepoint",
-    value_cols="amount"
-)
-
-testSeries = TimeSeries.from_dataframe(
-    testDf.reset_index(),
-    time_col="timepoint",
-    value_cols="amount"
-)
-
-model = ARIMA(p=1, d=1, q=1)
-model.fit(trainSeries)
-prediction = model.predict(n=1)
-print("predict...")
-print(prediction)
-
-#Commented out, i now experiment with prophet and this 10 minute waiting game is not needed:
-#Now: Rolling / One step ahead forecast
-#print("Rolling forecast incoming... (might need a few minutes)")
-#fullSeries = trainSeries.concatenate(testSeries)
-#forecast = model.historical_forecasts(
-#  series=fullSeries,
-#  start=testSeries.start_time(), #prediction starts at timepoint of testdata
-#  forecast_horizon=1, # only one step in the future for the moment = 15m
-#  stride=1, # only one step at each time.
-#  retrain=False, #dont retrain on every step. it is pre trained it is not needed.
-#  last_points_only=True # get only last point, because of forecast_horizon 1 it is the case anyway
-#)
-
-
-#print(forecast)
-
-#forecastDf = forecast.to_dataframe()
-#print(forecastDf.head(10))
-
-#evaluationDf = pd.concat(
-#    [
-#        testDf["amount"].rename("actual"),
-#        forecastDf["amount"].rename("prediction")
-#    ],
-#    axis=1
-#)
-
-#print(evaluationDf.head(10))
-#print(evaluationDf.shape)
-
-#evaluationDf=evaluationDf.dropna()
-
-#mae = mean_absolute_error(
-#  evaluationDf["actual"],
-#  evaluationDf["prediction"]
-#)
-
-
-#rmse = root_mean_squared_error(
-#  evaluationDf["actual"],
-#  evaluationDf["prediction"]
-#)
-
-#Mae: 3.452384824555465
-#Rmse: 5.570498681417147
-#<- an incredible lot better than baselinemodels!
-
-#print("Shape")
-#print(evaluationDf.shape)
-# 3326 × 15 min ≈ 34,9 days. Hole test set is from 28.07. to 02.09., so about 35 days. :check:
-#print(f"Mae: {mae}")
-#print(f"Rmse: {rmse}")
-
+#Commented out because it needs about 10 minutes and i am not working with arima for now
+#arimaModelEvaluation(trainDf, testDf)
 
 #-----------------------------------
 # Prophet Model
