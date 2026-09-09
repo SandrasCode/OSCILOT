@@ -713,6 +713,56 @@ def arimaModelEvaluation(trainDf: pd.DataFrame, testDf: pd.DataFrame):
   print(f"Mae: {mae}")
   print(f"Rmse: {rmse}")
 
+def prophetModelEvaluation(trainDf: pd.DataFrame, testDfProphet: pd.DataFrame):
+  prophetDf = pd.concat([
+    trainDf.reset_index()[["timepoint", "amount"]],
+    testDfProphet.reset_index()[["timepoint", "amount"]]
+  ]).rename(
+      columns={
+          "timepoint": "ds",
+          "amount": "y"
+      }
+  ).dropna()
+
+
+  model = Prophet()
+  # This looks like data leakage but isnt, because i use cutoffs
+  model.fit(prophetDf)
+
+  cutoffs = [
+      timestamp - pd.Timedelta(minutes=15)
+      for timestamp in testDfProphet.index
+      if pd.notna(testDfProphet.loc[timestamp, "amount"])
+  ]
+
+  #beware, following needs half an hour!
+  print("Rolling forecast incoming, needs about half an hour with a week of data")
+  forecast = cross_validation(
+      model,
+      horizon="15 minutes",
+      cutoffs=cutoffs,
+      #parallel="processes" # i cannot just make it paralell as is,
+      # i would have to fit my app.py to it (time is tight)
+  )
+
+  forecast = forecast.loc[
+      forecast["ds"] == forecast["cutoff"] + pd.Timedelta(minutes=15)
+  ].copy()
+
+  mae = mean_absolute_error(
+      forecast["y"],
+      forecast["yhat"]
+  )
+
+  rmse = root_mean_squared_error(
+      forecast["y"],
+      forecast["yhat"]
+  )
+
+  print(f"mae: {mae}, rmse: {rmse}")
+  #  mae: 43.966595656221706, rmse: 58.81863581832422
+  # dissapointing
+
 
 def addTimeFeatures(df: pd.DataFrame) -> pd.DataFrame:
   """
@@ -1086,60 +1136,16 @@ weeklyBaselineModelEvaluation(trainDf, testDf)
 #-----------------------------------
 # Prophet Model
 #-----------------------------------
+#Commented out because it needs half an hour with a week of data and results are not promising
+#so i will not use this
 
 # I will not use my whole testset. Because of rolling forecast each forecast needs about
 # 2 seconds. Which results in 1,5 hours of running without paralellisation
 
-testEnd = testDf.index.min() + pd.Timedelta(weeks=1)
-testDfProphet = testDf.loc[testDf.index < testEnd].copy()
+#testEnd = testDf.index.min() + pd.Timedelta(weeks=1)
+#testDfProphet = testDf.loc[testDf.index < testEnd].copy()
 
-prophetDf = pd.concat([
-    trainDf.reset_index()[["timepoint", "amount"]],
-    testDfProphet.reset_index()[["timepoint", "amount"]]
-]).rename(
-    columns={
-        "timepoint": "ds",
-        "amount": "y"
-    }
-).dropna()
-
-
-
-model = Prophet()
-# This looks like data leakage but isnt, because i use cutoffs
-model.fit(prophetDf)
-
-cutoffs = [
-    timestamp - pd.Timedelta(minutes=15)
-    for timestamp in testDfProphet.index
-    if pd.notna(testDfProphet.loc[timestamp, "amount"])
-]
-
-#commented following stuff out because it needs half an hour
-#forecast = cross_validation(
-#    model,
-#    horizon="15 minutes",
-#    cutoffs=cutoffs,
-#    #parallel="processes"
-#)
-
-#forecast = forecast.loc[
-#    forecast["ds"] == forecast["cutoff"] + pd.Timedelta(minutes=15)
-#].copy()
-
-#mae = mean_absolute_error(
-#    forecast["y"],
-#    forecast["yhat"]
-#)
-
-#rmse = root_mean_squared_error(
-#    forecast["y"],
-#    forecast["yhat"]
-#)
-
-#print(f"mae: {mae}, rmse: {rmse}")
-#  mae: 43.966595656221706, rmse: 58.81863581832422
-# dissapointing
+#prophetModelEvaluation(trainDf, testDfProphet)
 
 #-----------------------------------
 # RNN Model
