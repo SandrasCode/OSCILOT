@@ -79,6 +79,7 @@ def initDatabase(resetDb: bool = False) -> Engine:
   else:
       raise Exception("Database connection failed")
   if resetDb:
+    print("Begin deleting database.")
     successfulReseted = resetDatabaseContent(engine)
     print(f"Database reset successful: {successfulReseted}")
   return engine
@@ -117,7 +118,7 @@ def getAllDataFromParkingDecks() -> tuple[pd.DataFrame, pd.Timestamp]:
       if file["type"] == "file" and file["name"].endswith(".csv"):
         fileDate = pd.to_datetime(file["name"].removesuffix(".csv")).date()
         yield fileDate, file["download_url"]
-        #break #this is to only get first file for debug purposes
+        #break #this is to only get first file for debug purposes, comment out if all data should be received
       elif file["type"] == "dir":
         yield from get_csv_files(file["url"])
 
@@ -127,8 +128,15 @@ def getAllDataFromParkingDecks() -> tuple[pd.DataFrame, pd.Timestamp]:
   for fileDate, csv_url in get_csv_files(api_url):
     if latestDate is None or fileDate > latestDate:
       latestDate = fileDate
-    csv_response = requests.get(csv_url)
-    csv_response.raise_for_status()
+    for attempt in range(5):
+    try:
+        csv_response = requests.get(csv_url, timeout=30)
+        csv_response.raise_for_status()
+        break
+    except requests.RequestException as e:
+        print(f"Download failed (attempt {attempt + 1}/3): {e}")
+        if attempt == 4:
+            raise
     print(f"Downloading CSV: {csv_url}")
     dataframes.append(
         pd.read_csv(StringIO(csv_response.text))
@@ -139,7 +147,7 @@ def getAllDataFromParkingDecks() -> tuple[pd.DataFrame, pd.Timestamp]:
   print("Concatenate files to dataframe")
   df = pd.concat(dataframes, ignore_index=True, sort=False) #slightly more efficient with collecting data and concatening all at once.
 
-  # TODO: setSystemInfo("parking_data_last_date", latestDate)
+  print(f"Timestamp: {latestDate}")
   return df, pd.Timestamp(latestDate) #hopefully this works? this will be a heck of a dataframe maybe later just slice the new stuff?
 
 
@@ -170,6 +178,35 @@ def saveDataFrameToDB(engine: Engine, df: pd.DataFrame, table_name: str) -> bool
     print(f"Failed to save DataFrame to '{table_name}': {e}")
   return returnvalue
 
+def saveSystemInfoToDB(engine: Engine, key: str, value: str) -> bool:
+  returnvalue = True
+  systemDf = getSystemInfo(engine)
+  if key not in systemDf["key_name"].values:
+    try:
+      pd.DataFrame({key: [str], value: [str]}).to_sql("system_info", if_exists='append', con=engine, index=False)
+    except Exception as e:
+      returnvalue = False
+      print("Failed to save system_info.")
+  else:
+    try:
+      with engine.connect() as connection:
+        connection.execute(
+          text("""
+            UPDATE system_info
+            SET value = :value
+            WHERE key_name = :key
+          """),
+          {
+            "value": value,
+            "key": key
+          }
+        )
+        connection.commit()
+    except Exception as e:
+      returnvalue = False
+      print("Failed to update system_info.")
+  return returnvalue
+
 
 def getLotsOfParkinspaceNo(engine: Engine, no: int) -> pd.DataFrame:
     query = text("""
@@ -186,6 +223,9 @@ def getParkingspaces(engine: Engine) -> pd.DataFrame:
 
 def getLots(engine: Engine) -> pd.DataFrame:
   return pd.read_sql("SELECT * FROM lots ORDER BY parkingId, timepoint", con=engine)
+
+def getSystemInfo(engine: Engine) -> pd.DataFrame:
+  return pd.read_sql("system_info", con=engine)
 
 def prepareDataForDB(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
   """
@@ -278,13 +318,12 @@ def resetDatabaseAndImportAllData() -> bool:
   lotsSucc = saveDataFrameToDB(engine, lotsDf, 'lots')
   if(lotsSucc):
     print("Saving lots data successful!")
-    systemDf = pd.DataFrame({'key_name': 'parking_data_last_date', 'value': lastDate})
-    systemSucc = saveDataFrameToDB(engine, systemDf, 'system_info')
+    systemSucc = saveSystemInfoToDB(engine, 'parking_data_last_date', str(lastDate))
   if(parkSucc and lotsSucc and systemSucc):
     returnvalue = True
   return returnvalue
 
-def updateDatabase():
+#def updateDatabase():
   # something like this:
   #lastDbTimestamp = getLastTimestampFromDb()#
 
@@ -1211,19 +1250,24 @@ def trainAndSaveModel(trainDf: pd.DataFrame) -> RNNModel:
 #__________________
 #Reset Database and gett all Data
 #__________________
-#worked = resetDatabaseAndImportAllData()
-#message = "Import worked fine" if worked else "Import had a problem"
-#print(message)
+worked = resetDatabaseAndImportAllData()
+message = "Import worked fine" if worked else "Import had a problem"
+print(message)
+
+sysDf = getSystemInfo(getEngine())
+print("System info")
+print(sysDf)
+
 
 # It takes a long time to get all the data:
-#lotsDf = getLots(getEngine())
-#print("got lots")
+lotsDf = getLots(getEngine())
+print("got lots")
 #so i built this guy:
 #__________________
 #Get Data from Parkinspace 1
 #__________________
-lotsDf = getLotsOfParkinspaceNo(getEngine(), 1)
-print("got lots from 1")
+#lotsDf = getLotsOfParkinspaceNo(getEngine(), 1)
+#print("got lots from 1")
 
 #__________________
 #Analyze data visually
@@ -1405,7 +1449,8 @@ weeklyBaselineModelEvaluation(trainDf, testDf)
 #-----------------------------------
 #testWeatherCases()
 
-rnnModel = trainAndSaveModel(trainDf)
+#TODO:
+#rnnModel = trainAndSaveModel(trainDf)
 
 
 
