@@ -21,6 +21,7 @@ from prophet.diagnostics import cross_validation
 from darts.models import RNNModel
 from darts.dataprocessing.transformers import Scaler
 import joblib
+import traceback
 
 engine = None
 
@@ -129,11 +130,11 @@ def getAllDataFromParkingDecks() -> tuple[pd.DataFrame, pd.Timestamp]:
     if latestDate is None or fileDate > latestDate:
       latestDate = fileDate
     for attempt in range(5):
-    try:
+      try:
         csv_response = requests.get(csv_url, timeout=30)
         csv_response.raise_for_status()
         break
-    except requests.RequestException as e:
+      except requests.RequestException as e:
         print(f"Download failed (attempt {attempt + 1}/3): {e}")
         if attempt == 4:
             raise
@@ -171,11 +172,16 @@ def saveDataFrameToDB(engine: Engine, df: pd.DataFrame, table_name: str) -> bool
       True if saving to SQL was successful, False otherwise.
   """
   returnvalue = True
+  print(f"Starting save of '{table_name}' with {len(df)} rows")
   try:
     df.to_sql(table_name, if_exists='append', con=engine, index=False)
+    print(f"to_sql for '{table_name}' returned successfully")
   except Exception as e:
     returnvalue = False
+    print(type(e).__name__)
+    print(repr(e))
     print(f"Failed to save DataFrame to '{table_name}': {e}")
+    traceback.print_exc()
   return returnvalue
 
 def saveSystemInfoToDB(engine: Engine, key: str, value: str) -> bool:
