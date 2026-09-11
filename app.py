@@ -23,6 +23,8 @@ from darts.dataprocessing.transformers import Scaler
 import joblib
 import traceback
 from datetime import datetime
+#import torch
+from darts.utils.missing_values import extract_subseries
 
 engine = None
 
@@ -928,10 +930,13 @@ def rnnModelEvaluation(trainDf: pd.DataFrame, testDf: pd.DataFrame):
   #<- that block told me, that the nn calculated the same value for each forecast without scaling.
 
 def rnnModelEvaluationWithTimeAndWeatherFeatures(trainDf: pd.DataFrame, testDf: pd.DataFrame):
+  """The covariates data has already to be in trainDf and testDf!!! TODO: Maybe change in the future."""
+  print("________________")
+  print("RNN MODEL WITH COVARIATES")
+  print("________________")
 
-  print("________________")
-  print("RNN MODEL")
-  print("________________")
+  print("TRAIN TARGET NaN TIMESTAMPS:")
+  print(trainDf.index[trainDf["amount"].isna()])
 
   trainSeries = TimeSeries.from_dataframe(
     trainDf.reset_index(),
@@ -977,17 +982,166 @@ def rnnModelEvaluationWithTimeAndWeatherFeatures(trainDf: pd.DataFrame, testDf: 
   )
 
   targetScaler = Scaler()
+  #print("RAW TRAIN TARGET FINITE:")
+  #print(np.isfinite(trainSeries.to_dataframe()).all())
+
+  #print("RAW TRAIN TARGET NaNs:")
+  #print(trainSeries.to_dataframe().isna().sum())
+
+  #print("RAW TRAIN TARGET INF:")
+  #print(np.isinf(trainSeries.to_dataframe()).sum())
   trainSeriesScaled = targetScaler.fit_transform(trainSeries)
+
+  #print("SCALED TRAIN TARGET FINITE:")
+  #print(np.isfinite(trainSeriesScaled.to_dataframe()).all())
+
+  #print("SCALED TRAIN TARGET NaNs:")
+  #print(trainSeriesScaled.to_dataframe().isna().sum())
+
+  #print("SCALED TRAIN TARGET INF:")
+  #print(np.isinf(trainSeriesScaled.to_dataframe()).sum())
+
   covariatesScaler = Scaler()
   trainCovariatesScaled = covariatesScaler.fit_transform(trainCovariates)
-  model.fit(trainSeriesScaled, future_covariates=trainCovariatesScaled)
+
+  #print("TRAIN TARGET FINITE:")
+  #print(np.isfinite(trainSeriesScaled.to_dataframe()).all())
+
+  #print("TRAIN COVARIATES FINITE:")
+  #print(np.isfinite(trainCovariatesScaled.to_dataframe()).all())
+
+
+  trainSubseries = [
+    series
+    for series in extract_subseries(trainSeries)
+    if len(series) >= 97
+  ]
+  #trainSubseries = extract_subseries(trainSeries)
+
+  print("NUMBER OF SUBSERIES:", len(trainSubseries))
+
+  for i, series in enumerate(trainSubseries):
+      print(
+          i,
+          series.start_time(),
+          series.end_time(),
+          len(series)
+      )
+
+      trainSubseriesScaled = [
+    targetScaler.transform(series)
+    for series in trainSubseries
+  ]
+
+  print("SCALED SUBSERIES:")
+
+  for i, series in enumerate(trainSubseriesScaled):
+    print(
+        i,
+        series.start_time(),
+        series.end_time(),
+        len(series),
+        "NaNs:",
+        series.to_dataframe().isna().sum().sum()
+    )
+
+  trainCovariatesSubseries = []
+
+  for series in trainSubseries:
+      covariates = trainCovariates.slice(
+          series.start_time(),
+          series.end_time()
+      )
+      trainCovariatesSubseries.append(
+          covariatesScaler.transform(covariates)
+      )
+
+  print("COVARIATE SUBSERIES:")
+
+  for i, series in enumerate(trainCovariatesSubseries):
+      print(
+          i,
+          series.start_time(),
+          series.end_time(),
+          len(series),
+          "NaNs:",
+          series.to_dataframe().isna().sum().sum()
+      )
+
+  model.fit(trainSubseriesScaled, future_covariates=trainCovariatesSubseries)
+
+  #print("MODEL WEIGHTS FINITE:")
+
+  #for name, parameter in model.model.named_parameters():
+  #    print(
+  #        name,
+  #        "finite:", torch.isfinite(parameter).all().item(),
+  #        "nan:", torch.isnan(parameter).any().item()
+  #    )
+
+  #print("MODEL:")
+  #print(model)
+
+  fullSeriesScaled = targetScaler.transform(trainSeries.concatenate(testSeries))
+  fullCovariatesScaled = covariatesScaler.transform(trainCovariates.concatenate(testCovariates))
+
+  #print("DIRECT MODEL PREDICTION")
+
+  #directForecast = model.predict(
+  #    n=1,
+  #    series=trainSeriesScaled,
+  #    future_covariates=fullCovariatesScaled
+  #)
+
+  #print(directForecast.to_dataframe())
+
+  #print(directForecast.to_dataframe())
+  #directForecast = model.predict(
+  #    n=1,
+  #    series=trainSeriesScaled,
+  #    future_covariates=fullCovariatesScaled
+  #)
+
+  #print(directForecast.to_dataframe())
+  #print(directForecast.to_dataframe().isna().sum())
 
   print("Rolling forecast incoming...")
 
-  fullSeriesScaled = targetScaler.transform(trainSeries.concatenate(testSeries))
-  fullCovariates = covariatesScaler.transform(trainCovariates.concatenate(testCovariates))
+  #print(
+  #  pd.concat([trainDf, testDf])
+  #  .loc[
+  #      "2026-07-27 19:15":"2026-07-28 19:00",
+  #      ["amount"]
+  #  ]
+  #  .isna()
+  #  .sum()
+  #)
 
-   forecast = model.historical_forecasts(
+
+
+  #print("Last training target:")
+  #print(trainSeriesScaled.to_dataframe().tail())
+
+  #print("Next covariate:")
+  #print(
+  #    fullCovariatesScaled
+  #    .to_dataframe()
+  #    .loc[
+  #        trainSeries.end_time():
+  #        trainSeries.end_time() + pd.Timedelta(minutes=15)
+  #    ]
+  #)
+  #print("Train covariates NaNs:")
+  #print(trainCovariates.to_dataframe().isna().sum())
+
+  #print("Full covariates NaNs:")
+  #print(fullCovariatesScaled.to_dataframe().isna().sum())
+
+  #print("Full target NaNs:")
+  #print(fullSeriesScaled.to_dataframe().isna().sum())
+
+  print("Forecast")
+  forecast = model.historical_forecasts(
     series=fullSeriesScaled,
     future_covariates=fullCovariatesScaled,
     start=testSeries.start_time(),
@@ -997,9 +1151,19 @@ def rnnModelEvaluationWithTimeAndWeatherFeatures(trainDf: pd.DataFrame, testDf: 
     last_points_only=True
   )
 
+  print("inverse")
+  print("Forecast before inverse transform:")
+  print(forecast.to_dataframe().head())
+  print(forecast.to_dataframe().isna().sum())
   forecast = targetScaler.inverse_transform(forecast)
   forecastDf = forecast.to_dataframe()
 
+  print("Forecast NaNs:", forecastDf["amount"].isna().sum())
+  print("Forecast length:", len(forecastDf))
+  print(forecastDf.head(20))
+  print("Test NaNs:", testDf["amount"].isna().sum())
+
+  print("eval df")
   evaluationDf = pd.concat(
       [
           testDf["amount"].rename("actual"),
@@ -1008,6 +1172,26 @@ def rnnModelEvaluationWithTimeAndWeatherFeatures(trainDf: pd.DataFrame, testDf: 
       axis=1
   ).dropna()
 
+  print("TEST INDEX:")
+  print(testDf.index[:5])
+  print(testDf.index[-5:])
+
+
+  print("FORECAST INDEX:")
+  print(forecastDf.index[:5])
+  print(forecastDf.index[-5:])
+
+  print("Test length:", len(testDf))
+  print("Forecast length:", len(forecastDf))
+
+  print(
+    "Overlapping timestamps:",
+    len(testDf.index.intersection(forecastDf.index))
+  )
+
+  print("evaluationDf shape:", evaluationDf.shape)
+  print(evaluationDf.head())
+  print(evaluationDf.tail())
   mae = mean_absolute_error(
       evaluationDf["actual"],
       evaluationDf["prediction"]
@@ -1555,7 +1739,15 @@ weeklyBaselineModelEvaluation(trainDf, testDf)
 # RNN Model
 #-----------------------------------
 #Remind you, this is only the evaluation!
-rnnModelEvaluation(trainDf, testDf)
+#rnnModelEvaluation(trainDf, testDf)
+
+#-----------------------------------
+# RNN Model with Time and Weather covariates
+#-----------------------------------
+#trainDfWithCov = enrichData(trainDf)
+#testDfWithCov = enrichData(testDf)
+
+rnnModelEvaluationWithTimeAndWeatherFeatures(trainDf, testDf)
 
 #-----------------------------------
 # Test getWeatherData
@@ -1565,7 +1757,7 @@ rnnModelEvaluation(trainDf, testDf)
 #-----------------------------------
 # Train and save model
 #-----------------------------------
-rnnModel = trainAndSaveModel(trainDf)
+#rnnModel = trainAndSaveModel(trainDf)
 
 def predictLots(when: datetime, parkingId: int = 1) -> float:
   # 0. See if when fits our 15m grid

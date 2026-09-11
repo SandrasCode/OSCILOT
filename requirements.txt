@@ -11,3 +11,4 @@ darts
 prophet
 darts[torch]
 joblib
+u8darts
