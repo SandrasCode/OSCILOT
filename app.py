@@ -22,6 +22,7 @@ from darts.models import RNNModel
 from darts.dataprocessing.transformers import Scaler
 import joblib
 import traceback
+from datetime import datetime
 
 engine = None
 
@@ -1256,9 +1257,9 @@ def trainAndSaveModel(trainDf: pd.DataFrame) -> RNNModel:
 #__________________
 #Reset Database and gett all Data
 #__________________
-worked = resetDatabaseAndImportAllData()
-message = "Import worked fine" if worked else "Import had a problem"
-print(message)
+#worked = resetDatabaseAndImportAllData()
+#message = "Import worked fine" if worked else "Import had a problem"
+#print(message)
 
 sysDf = getSystemInfo(getEngine())
 print("System info")
@@ -1266,14 +1267,14 @@ print(sysDf)
 
 
 # It takes a long time to get all the data:
-lotsDf = getLots(getEngine())
-print("got lots")
+#lotsDf = getLots(getEngine())
+#print("got lots")
 #so i built this guy:
 #__________________
 #Get Data from Parkinspace 1
 #__________________
-#lotsDf = getLotsOfParkinspaceNo(getEngine(), 1)
-#print("got lots from 1")
+lotsDf = getLotsOfParkinspaceNo(getEngine(), 1)
+print("got lots from 1")
 
 #__________________
 #Analyze data visually
@@ -1448,18 +1449,75 @@ weeklyBaselineModelEvaluation(trainDf, testDf)
 # RNN Model
 #-----------------------------------
 #Remind you, this is only the evaluation!
-#rnnModelEvaluation(trainDf, testDf)
+rnnModelEvaluation(trainDf, testDf)
 
 #-----------------------------------
 # Test getWeatherData
 #-----------------------------------
 #testWeatherCases()
 
-#TODO:
-#rnnModel = trainAndSaveModel(trainDf)
+#-----------------------------------
+# Train and save model
+#-----------------------------------
+rnnModel = trainAndSaveModel(trainDf)
 
-
-
+def predictLots(when: datetime, parkingId: int = 1) -> float:
+  # 0. See if when fits our 15m grid
+  if when.minute % 15 != 0 or when.second != 0:
+    raise ValueError("Prediction time must be on a 15-minute interval.")
+  # 1. make an DataFrame out of it
+  df = pd.DataFrame({"timepoint": [when]})
+  # get last steps amout of historical data additionally
+  lotsDf = getLotsOfParkinspaceNo(getEngine(), 1)
+  lotsDf = lotsDf.sort_values("timepoint")
+  historyDf = lotsDf[lotsDf['timepoint']<= when].iloc[-96:].copy()
+  print(f"Amount of historical data acquired: {len(historyDf)}")
+  if len(historyDf) < 96:
+    raise ValueError("Not enough historical data for prediction.")
+  # get date of last real datapoint
+  lastTimeOfData = historyDf["timepoint"].iloc[-1]
+  # Compute distance between lastTimeOfData and when
+  steps = int((when - lastTimeOfData) / pd.Timedelta(minutes=15))
+  # build df together correctly and fill missing timestamps
+  historyDf['timepoint'] = pd.to_datetime(historyDf["timepoint"])
+  df = pd.concat([historyDf, df])
+  df = df.set_index("timepoint")
+  df = df.resample("15min").asfreq()
+  # 2. enrich data with additional infos (weather and time- features)
+  df = enrichData(df)
+  # 3. load model and scaler
+  targetScaler = joblib.load("output/models/parking_rnn_target_scaler.pkl")
+  covariatesScaler = joblib.load("output/models/parking_rnn_covariates_scaler.pkl")
+  model = RNNModel.load("output/models/parking_rnn")
+  # Scale and predict
+  target = TimeSeries.from_dataframe(
+    df.reset_index(),
+    time_col="timepoint",
+    value_cols="amount"
+  )
+  covariates = TimeSeries.from_dataframe(
+    df.reset_index(),
+    time_col="timepoint",
+    value_cols=[
+      "time_sin",
+      "time_cos",
+      "weekday_sin",
+      "weekday_cos",
+      "temperature",
+      "precipitation"
+    ]
+  )
+  targetScaled = targetScaler.transform(target)
+  covariatesScaled = covariatesScaler.transform(covariates)
+  # Autoregressive prediction for amount of steps:
+  prediction = model.predict(
+    n=steps,
+    series=targetScaled,
+    future_covariates=covariatesScaled
+  )
+  predictionDf = prediction.pd_dataframe()
+  predictionValue = predictionDf.iloc[-1]["amount"]
+  return predictionValue
 
 print("Ended")
 # following needed for development with docker compose watch:
