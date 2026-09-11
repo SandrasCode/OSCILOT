@@ -927,6 +927,112 @@ def rnnModelEvaluation(trainDf: pd.DataFrame, testDf: pd.DataFrame):
   print("Prediction min/max:", evaluationDf["prediction"].min(), evaluationDf["prediction"].max())
   #<- that block told me, that the nn calculated the same value for each forecast without scaling.
 
+def rnnModelEvaluationWithTimeAndWeatherFeatures(trainDf: pd.DataFrame, testDf: pd.DataFrame):
+
+  print("________________")
+  print("RNN MODEL")
+  print("________________")
+
+  trainSeries = TimeSeries.from_dataframe(
+    trainDf.reset_index(),
+    time_col="timepoint",
+    value_cols="amount"
+  )
+
+  testSeries = TimeSeries.from_dataframe(
+    testDf.reset_index(),
+    time_col="timepoint",
+    value_cols="amount"
+  )
+  covariateColumns = [
+    "time_sin",
+    "time_cos",
+    "weekday_sin",
+    "weekday_cos",
+    "temperature",
+    "precipitation"
+  ]
+
+  trainCovariates = TimeSeries.from_dataframe(
+    trainDf.reset_index(),
+    time_col="timepoint",
+    value_cols=covariateColumns
+  )
+
+  testCovariates = TimeSeries.from_dataframe(
+    testDf.reset_index(),
+    time_col="timepoint",
+    value_cols=covariateColumns
+  )
+
+  model = RNNModel(
+    model="LSTM",
+    input_chunk_length=96,
+    output_chunk_length=1,
+    training_length=96,
+    n_rnn_layers=1,
+    hidden_dim=25,
+    n_epochs=10,
+    random_state=42
+  )
+
+  targetScaler = Scaler()
+  trainSeriesScaled = targetScaler.fit_transform(trainSeries)
+  covariatesScaler = Scaler()
+  trainCovariatesScaled = covariatesScaler.fit_transform(trainCovariates)
+  model.fit(trainSeriesScaled, future_covariates=trainCovariatesScaled)
+
+  print("Rolling forecast incoming...")
+
+  fullSeriesScaled = targetScaler.transform(trainSeries.concatenate(testSeries))
+  fullCovariates = covariatesScaler.transform(trainCovariates.concatenate(testCovariates))
+
+   forecast = model.historical_forecasts(
+    series=fullSeriesScaled,
+    future_covariates=fullCovariatesScaled,
+    start=testSeries.start_time(),
+    forecast_horizon=1,
+    stride=1,
+    retrain=False,
+    last_points_only=True
+  )
+
+  forecast = targetScaler.inverse_transform(forecast)
+  forecastDf = forecast.to_dataframe()
+
+  evaluationDf = pd.concat(
+      [
+          testDf["amount"].rename("actual"),
+          forecastDf["amount"].rename("prediction")
+      ],
+      axis=1
+  ).dropna()
+
+  mae = mean_absolute_error(
+      evaluationDf["actual"],
+      evaluationDf["prediction"]
+  )
+
+  rmse = root_mean_squared_error(
+      evaluationDf["actual"],
+      evaluationDf["prediction"]
+  )
+
+  print("MAE:", mae)
+  print("RMSE:", rmse)
+
+
+
+  print(forecastDf.head(20))
+  print(forecastDf.describe())
+  print("Actual mean:", evaluationDf["actual"].mean())
+  print("Prediction mean:", evaluationDf["prediction"].mean())
+  print("Actual min/max:", evaluationDf["actual"].min(), evaluationDf["actual"].max())
+  print("Prediction min/max:", evaluationDf["prediction"].min(), evaluationDf["prediction"].max())
+  #<- that block told me, that the nn calculated the same value for each forecast without scaling.
+
+
+
 
 def addTimeFeatures(df: pd.DataFrame) -> pd.DataFrame:
   """
