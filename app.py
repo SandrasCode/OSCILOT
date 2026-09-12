@@ -1509,6 +1509,67 @@ def trainAndSaveModel(trainDf: pd.DataFrame) -> RNNModel:
 
   return model
 
+def predictLots(when: datetime, parkingId: int = 1) -> float:
+  # 0. See if when fits our 15m grid
+  if when.minute % 15 != 0 or when.second != 0:
+    raise ValueError("Prediction time must be on a 15-minute interval.")
+  # 1. make an DataFrame out of it
+  df = pd.DataFrame({"timepoint": [when]})
+  # get last steps amout of historical data additionally
+  lotsDf = getLotsOfParkinspaceNo(getEngine(), parkingId)
+  lotsDf = lotsDf.sort_values("timepoint")
+  historyDf = lotsDf[lotsDf['timepoint']<= when].iloc[-96:].copy()
+  print(f"Amount of historical data acquired: {len(historyDf)}")
+  if len(historyDf) < 96:
+    raise ValueError("Not enough historical data for prediction.")
+  # get date of last real datapoint
+  lastTimeOfData = historyDf["timepoint"].iloc[-1]
+  # Compute distance between lastTimeOfData and when
+  steps = int((when - lastTimeOfData) / pd.Timedelta(minutes=15))
+  if steps <= 0:
+    raise ValueError("Prediction time must be after the last historical datapoint.")
+  # build df together correctly and fill missing timestamps
+  historyDf['timepoint'] = pd.to_datetime(historyDf["timepoint"])
+  df = pd.concat([historyDf, df])
+  df = df.set_index("timepoint")
+  #df = df.resample("15min").asfreq()
+  # 2. enrich data with additional infos (weather and time- features)
+  df = enrichData(df)
+  # 3. load model and scaler
+  targetScaler = joblib.load("output/models/parking_rnn_target_scaler.pkl")
+  covariatesScaler = joblib.load("output/models/parking_rnn_covariates_scaler.pkl")
+  model = RNNModel.load("output/models/parking_rnn")
+  # Scale and predict
+  target = TimeSeries.from_dataframe(
+    df.reset_index(),
+    time_col="timepoint",
+    value_cols="amount"
+  )
+  covariates = TimeSeries.from_dataframe(
+    df.reset_index(),
+    time_col="timepoint",
+    value_cols=[
+      "time_sin",
+      "time_cos",
+      "weekday_sin",
+      "weekday_cos",
+      "temperature",
+      "precipitation"
+    ]
+  )
+  targetScaled = targetScaler.transform(target)
+  covariatesScaled = covariatesScaler.transform(covariates)
+  # Autoregressive prediction for amount of steps:
+  prediction = model.predict(
+    n=steps,
+    series=targetScaled,
+    future_covariates=covariatesScaled
+  )
+  prediction = targetScaler.inverse_transform(prediction)
+  predictionDf = prediction.pd_dataframe()
+  predictionValue = predictionDf.iloc[-1]["amount"]
+  return predictionValue
+
 #-----------------------------------
 # Call everything!
 #-----------------------------------
@@ -1726,68 +1787,8 @@ weeklyBaselineModelEvaluation(trainDf, testDf)
 #-----------------------------------
 # Train and save model
 #-----------------------------------
-rnnModel = trainAndSaveModel(trainDf)
+#rnnModel = trainAndSaveModel(trainDf)
 
-def predictLots(when: datetime, parkingId: int = 1) -> float:
-  # 0. See if when fits our 15m grid
-  if when.minute % 15 != 0 or when.second != 0:
-    raise ValueError("Prediction time must be on a 15-minute interval.")
-  # 1. make an DataFrame out of it
-  df = pd.DataFrame({"timepoint": [when]})
-  # get last steps amout of historical data additionally
-  lotsDf = getLotsOfParkinspaceNo(getEngine(), parkingId)
-  lotsDf = lotsDf.sort_values("timepoint")
-  historyDf = lotsDf[lotsDf['timepoint']<= when].iloc[-96:].copy()
-  print(f"Amount of historical data acquired: {len(historyDf)}")
-  if len(historyDf) < 96:
-    raise ValueError("Not enough historical data for prediction.")
-  # get date of last real datapoint
-  lastTimeOfData = historyDf["timepoint"].iloc[-1]
-  # Compute distance between lastTimeOfData and when
-  steps = int((when - lastTimeOfData) / pd.Timedelta(minutes=15))
-  if steps <= 0:
-    raise ValueError("Prediction time must be after the last historical datapoint.")
-  # build df together correctly and fill missing timestamps
-  historyDf['timepoint'] = pd.to_datetime(historyDf["timepoint"])
-  df = pd.concat([historyDf, df])
-  df = df.set_index("timepoint")
-  #df = df.resample("15min").asfreq()
-  # 2. enrich data with additional infos (weather and time- features)
-  df = enrichData(df)
-  # 3. load model and scaler
-  targetScaler = joblib.load("output/models/parking_rnn_target_scaler.pkl")
-  covariatesScaler = joblib.load("output/models/parking_rnn_covariates_scaler.pkl")
-  model = RNNModel.load("output/models/parking_rnn")
-  # Scale and predict
-  target = TimeSeries.from_dataframe(
-    df.reset_index(),
-    time_col="timepoint",
-    value_cols="amount"
-  )
-  covariates = TimeSeries.from_dataframe(
-    df.reset_index(),
-    time_col="timepoint",
-    value_cols=[
-      "time_sin",
-      "time_cos",
-      "weekday_sin",
-      "weekday_cos",
-      "temperature",
-      "precipitation"
-    ]
-  )
-  targetScaled = targetScaler.transform(target)
-  covariatesScaled = covariatesScaler.transform(covariates)
-  # Autoregressive prediction for amount of steps:
-  prediction = model.predict(
-    n=steps,
-    series=targetScaled,
-    future_covariates=covariatesScaled
-  )
-  prediction = targetScaler.inverse_transform(prediction)
-  predictionDf = prediction.pd_dataframe()
-  predictionValue = predictionDf.iloc[-1]["amount"]
-  return predictionValue
 
 
 
