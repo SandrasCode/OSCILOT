@@ -10,6 +10,7 @@ services:
     #image: cypria/weiterbildung-dev:latest
     ports:
       - "8001:8001"
+      - "8501:8501"
     environment:
       - MYSQL_HOST=db
       - MYSQL_USER=root
@@ -52,7 +53,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 30s
+      start_period: 100s #30s # upscaled to 100 because when starting on empty database it needs more time
 
 volumes:
   db-data:

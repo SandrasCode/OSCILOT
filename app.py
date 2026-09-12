@@ -6,7 +6,7 @@ import requests
 from io import StringIO
 from sqlalchemy import Engine, create_engine, text
 from pathlib import Path
-import time
+import time as time_module
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -22,10 +22,12 @@ from darts.models import RNNModel
 from darts.dataprocessing.transformers import Scaler
 import joblib
 import traceback
-from datetime import datetime
+from datetime import datetime, time
 #import torch
 from darts.utils.missing_values import extract_subseries
 from darts import concatenate
+import streamlit as st
+
 
 engine = None
 
@@ -80,7 +82,7 @@ def initDatabase(resetDb: bool = False) -> Engine:
               break
       except OperationalError:
           print(f"Database not ready, retry {attempt + 1}/30")
-          time.sleep(2)
+          time_module.sleep(2)
   else:
       raise Exception("Database connection failed")
   if resetDb:
@@ -1513,8 +1515,9 @@ def predictLots(when: datetime, parkingId: int = 1) -> float:
   # 0. See if when fits our 15m grid
   if when.minute % 15 != 0 or when.second != 0:
     raise ValueError("Prediction time must be on a 15-minute interval.")
+
   # 1. make an DataFrame out of it
-  df = pd.DataFrame({"timepoint": [when]})
+  #df = pd.DataFrame({"timepoint": [when]})
   # get last steps amout of historical data additionally
   lotsDf = getLotsOfParkinspaceNo(getEngine(), parkingId)
   lotsDf = lotsDf.sort_values("timepoint")
@@ -1529,24 +1532,32 @@ def predictLots(when: datetime, parkingId: int = 1) -> float:
   if steps <= 0:
     raise ValueError("Prediction time must be after the last historical datapoint.")
   # build df together correctly and fill missing timestamps
-  historyDf['timepoint'] = pd.to_datetime(historyDf["timepoint"])
-  df = pd.concat([historyDf, df])
-  df = df.set_index("timepoint")
-  #df = df.resample("15min").asfreq()
+
+  # Build all timestamps needed for future covariates
+  allTimepoints = pd.date_range(
+    start=historyDf["timepoint"].iloc[0],
+    end=when,
+    freq="15min"
+  )
+  covariatesDf = pd.DataFrame({
+    "timepoint": allTimepoints
+  })
+
+  covariatesDf = covariatesDf.set_index("timepoint")
   # 2. enrich data with additional infos (weather and time- features)
-  df = enrichData(df)
+  covariatesDf = enrichData(covariatesDf)
   # 3. load model and scaler
   targetScaler = joblib.load("output/models/parking_rnn_target_scaler.pkl")
   covariatesScaler = joblib.load("output/models/parking_rnn_covariates_scaler.pkl")
   model = RNNModel.load("output/models/parking_rnn")
   # Scale and predict
   target = TimeSeries.from_dataframe(
-    df.reset_index(),
+    historyDf.reset_index(),
     time_col="timepoint",
     value_cols="amount"
   )
   covariates = TimeSeries.from_dataframe(
-    df.reset_index(),
+    covariatesDf.reset_index(),
     time_col="timepoint",
     value_cols=[
       "time_sin",
@@ -1559,6 +1570,9 @@ def predictLots(when: datetime, parkingId: int = 1) -> float:
   )
   targetScaled = targetScaler.transform(target)
   covariatesScaled = covariatesScaler.transform(covariates)
+  print("LAST COVARIATE:", covariates.end_time())
+  print("TARGET END:", target.end_time())
+  print("STEPS:", steps)
   # Autoregressive prediction for amount of steps:
   prediction = model.predict(
     n=steps,
@@ -1566,10 +1580,8 @@ def predictLots(when: datetime, parkingId: int = 1) -> float:
     future_covariates=covariatesScaled
   )
   prediction = targetScaler.inverse_transform(prediction)
-  predictionDf = prediction.pd_dataframe()
-  predictionValue = predictionDf.iloc[-1]["amount"]
+  predictionValue = prediction.last_value()
   return predictionValue
-
 #-----------------------------------
 # Call everything!
 #-----------------------------------
@@ -1581,9 +1593,9 @@ def predictLots(when: datetime, parkingId: int = 1) -> float:
 #message = "Import worked fine" if worked else "Import had a problem"
 #print(message)
 
-sysDf = getSystemInfo(getEngine())
-print("System info")
-print(sysDf)
+#sysDf = getSystemInfo(getEngine())
+#print("System info")
+#print(sysDf)
 
 
 # It takes a long time to get all the data:
@@ -1593,8 +1605,8 @@ print(sysDf)
 #__________________
 #Get Data from Parkinspace 1
 #__________________
-lotsDf = getLotsOfParkinspaceNo(getEngine(), 1)
-print("got lots from 1")
+#lotsDf = getLotsOfParkinspaceNo(getEngine(), 1)
+#print("got lots from 1")
 
 #__________________
 #Analyze data visually
@@ -1643,13 +1655,13 @@ print("got lots from 1")
 #Change type of timepoint to datetime (comming from database it wasnt yet)
 #__________________
 #Timepoint is datetime
-lotsDf["timepoint"] = pd.to_datetime(lotsDf["timepoint"])
+#lotsDf["timepoint"] = pd.to_datetime(lotsDf["timepoint"])
 
 #__________________
 #Defined time period for Experiment 0
 #__________________
 # 0st experiment: #2026-03-10 ─────────────────────────────────── 2026-09-02
-timeseriesDf = lotsDf.loc[(lotsDf['timepoint'] >= "2026-03-10") & (lotsDf['timepoint'] <= "2026-09-02")]
+#timeseriesDf = lotsDf.loc[(lotsDf['timepoint'] >= "2026-03-10") & (lotsDf['timepoint'] <= "2026-09-02")]
 
 #__________________
 #Defined time period for Experiment 1
@@ -1661,18 +1673,18 @@ timeseriesDf = lotsDf.loc[(lotsDf['timepoint'] >= "2026-03-10") & (lotsDf['timep
 #Clean Data / Create proper timeseries data:
 #__________________
 # 1. remove ges, as it will not be par of our training.
-timeseriesDf = timeseriesDf.loc[timeseriesDf['status'] != 'ges']
+#timeseriesDf = timeseriesDf.loc[timeseriesDf['status'] != 'ges']
 
 # (2. everything with status 'bes' = 0 is already the case)
 
 # 3. 15 minute grid. If there is an hole in the data it will not wrongfully filled with resample!
-timeseriesDf = (
-  timeseriesDf
-  .set_index("timepoint")
-  .resample("15min")
-  .last()
-  .sort_index()
-)
+#timeseriesDf = (
+#  timeseriesDf
+#  .set_index("timepoint")
+#  .resample("15min")
+#  .last()
+#  .sort_index()
+#)
 
 #__________________
 #Analyse how many NaN are created by our resampling
@@ -1707,43 +1719,43 @@ timeseriesDf = (
 #__________________
 # 2026-07-09 01:30 - interpolate missing value:
 #__________________
-timeseriesDf.loc[
-    "2026-07-09 01:30:00", "amount"
-] = (
-    timeseriesDf.loc["2026-07-09 01:15:00", "amount"]
-    + timeseriesDf.loc["2026-07-09 01:45:00", "amount"]
-) / 2
+#timeseriesDf.loc[
+#    "2026-07-09 01:30:00", "amount"
+#] = (
+#    timeseriesDf.loc["2026-07-09 01:15:00", "amount"]
+#    + timeseriesDf.loc["2026-07-09 01:45:00", "amount"]
+#) / 2
 
 #__________________
 #Enrich data with weather and time features
 #__________________
 
-timeseriesDf = enrichData(timeseriesDf)
-print("timeseries with timestuff and weatherstuff")
-pd.set_option("display.max_columns", None)
-print(timeseriesDf)
+#timeseriesDf = enrichData(timeseriesDf)
+#print("timeseries with timestuff and weatherstuff")
+#pd.set_option("display.max_columns", None)
+#print(timeseriesDf)
 
 #__________________
 #Test split
 #__________________
 
 
-splitIndex = int(len(timeseriesDf) * 0.8)
-trainDf = timeseriesDf.iloc[:splitIndex].copy()
-testDf = timeseriesDf.iloc[splitIndex:].copy()
+#splitIndex = int(len(timeseriesDf) * 0.8)
+#trainDf = timeseriesDf.iloc[:splitIndex].copy()
+#testDf = timeseriesDf.iloc[splitIndex:].copy()
 
-print("Train:", trainDf.index.min(), "->", trainDf.index.max())
-print("Test:", testDf.index.min(), "->", testDf.index.max())
+#print("Train:", trainDf.index.min(), "->", trainDf.index.max())
+#print("Test:", testDf.index.min(), "->", testDf.index.max())
 
 #-----------------------------------
 # Predict Baseline and see MAE and RMSE
 #-----------------------------------
-baselineModelEvaluation(trainDf, testDf)
+#baselineModelEvaluation(trainDf, testDf)
 
 #-----------------------------------
 # Predict Weekly Baseline and see MAE and RMSE
 #-----------------------------------
-weeklyBaselineModelEvaluation(trainDf, testDf)
+#weeklyBaselineModelEvaluation(trainDf, testDf)
 
 #-----------------------------------
 # Arima Model
@@ -1790,10 +1802,66 @@ weeklyBaselineModelEvaluation(trainDf, testDf)
 #rnnModel = trainAndSaveModel(trainDf)
 
 
+#-----------------------------------
+# set up streamlit app
+#-----------------------------------
 
+
+st.set_page_config(
+  page_title="OSCILOT - Oscillation-based Forecasting of Occupancy in Parking Lots",
+  page_icon="🅿️"
+)
+
+
+st.title("OSCILOT - Oscillation-based Forecasting of Occupancy in Parking Lots")
+
+st.write(
+    "Vorhersage der verfügbaren Parkplätze für ein Münsteraner Parkhaus."
+)
+
+st.divider()
+
+# input, TODO: use names from database instead of numbers
+parkingId = st.number_input(
+  "Parkhaus",
+  min_value=1,
+  value=1,
+  step=1
+)
+
+predictionDate = st.date_input("Datum")
+
+predictionTime = st.time_input(
+  "Uhrzeit",
+  value=time(12, 0),
+  step=900  # 15 minutes
+)
+
+st.divider()
+
+# prediction
+if st.button("Vorhersage starten", type="primary"):
+
+    when = datetime.combine(
+      predictionDate,
+      predictionTime
+    )
+
+    try:
+      prediction = predictLots(
+        when=when,
+        parkingId=parkingId
+      )
+      st.success(
+        f"Für {when.strftime('%d.%m.%Y um %H:%M')} "
+        f"werden ungefähr **{prediction:.0f} freie Parkplätze** erwartet."
+      )
+
+    except Exception as e:
+      st.error(f"Vorhersage konnte nicht erstellt werden: {e}")
 
 
 print("Ended")
 # following needed for development with docker compose watch:
 import time
-time.sleep(500000)
+time_module.sleep(500000)

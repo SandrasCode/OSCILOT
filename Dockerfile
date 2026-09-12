@@ -46,4 +46,5 @@ COPY . .
 EXPOSE 8001
 
 # Run the application.
-CMD ["python3", "app.py"]
+#CMD ["python3", "app.py"]
+CMD ["streamlit", "run", "app.py", "--server.address=0.0.0.0"]
