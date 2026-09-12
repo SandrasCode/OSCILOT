@@ -25,6 +25,7 @@ import traceback
 from datetime import datetime
 #import torch
 from darts.utils.missing_values import extract_subseries
+from darts import concatenate
 
 engine = None
 
@@ -218,14 +219,25 @@ def saveSystemInfoToDB(engine: Engine, key: str, value: str) -> bool:
 
 
 def getLotsOfParkinspaceNo(engine: Engine, no: int) -> pd.DataFrame:
-    query = text("""
-        SELECT *
-        FROM lots
-        WHERE parkingId = :no
-        ORDER BY timepoint
-    """)
-
-    return pd.read_sql(query, con=engine, params={"no": no})
+  """
+    Returns Lots packed in 15min-grid.
+  """
+  query = text("""
+      SELECT *
+      FROM lots
+      WHERE parkingId = :no
+      ORDER BY timepoint
+  """)
+  df = pd.read_sql(query, con=engine, params={"no": no})
+  df["timepoint"] = pd.to_datetime(df["timepoint"])
+  df = (
+      df
+      .set_index("timepoint")
+      .resample("15min")
+      .last()
+      .reset_index()
+  )
+  return df
 
 def getParkingspaces(engine: Engine) -> pd.DataFrame:
   return pd.read_sql("parkingspaces", con=engine)
@@ -982,33 +994,10 @@ def rnnModelEvaluationWithTimeAndWeatherFeatures(trainDf: pd.DataFrame, testDf: 
   )
 
   targetScaler = Scaler()
-  #print("RAW TRAIN TARGET FINITE:")
-  #print(np.isfinite(trainSeries.to_dataframe()).all())
-
-  #print("RAW TRAIN TARGET NaNs:")
-  #print(trainSeries.to_dataframe().isna().sum())
-
-  #print("RAW TRAIN TARGET INF:")
-  #print(np.isinf(trainSeries.to_dataframe()).sum())
   trainSeriesScaled = targetScaler.fit_transform(trainSeries)
-
-  #print("SCALED TRAIN TARGET FINITE:")
-  #print(np.isfinite(trainSeriesScaled.to_dataframe()).all())
-
-  #print("SCALED TRAIN TARGET NaNs:")
-  #print(trainSeriesScaled.to_dataframe().isna().sum())
-
-  #print("SCALED TRAIN TARGET INF:")
-  #print(np.isinf(trainSeriesScaled.to_dataframe()).sum())
 
   covariatesScaler = Scaler()
   trainCovariatesScaled = covariatesScaler.fit_transform(trainCovariates)
-
-  #print("TRAIN TARGET FINITE:")
-  #print(np.isfinite(trainSeriesScaled.to_dataframe()).all())
-
-  #print("TRAIN COVARIATES FINITE:")
-  #print(np.isfinite(trainCovariatesScaled.to_dataframe()).all())
 
 
   trainSubseries = [
@@ -1016,7 +1005,6 @@ def rnnModelEvaluationWithTimeAndWeatherFeatures(trainDf: pd.DataFrame, testDf: 
     for series in extract_subseries(trainSeries)
     if len(series) >= 97
   ]
-  #trainSubseries = extract_subseries(trainSeries)
 
   print("NUMBER OF SUBSERIES:", len(trainSubseries))
 
@@ -1028,10 +1016,10 @@ def rnnModelEvaluationWithTimeAndWeatherFeatures(trainDf: pd.DataFrame, testDf: 
           len(series)
       )
 
-      trainSubseriesScaled = [
+  trainSubseriesScaled = [
     targetScaler.transform(series)
     for series in trainSubseries
-  ]
+    ]
 
   print("SCALED SUBSERIES:")
 
@@ -1070,75 +1058,13 @@ def rnnModelEvaluationWithTimeAndWeatherFeatures(trainDf: pd.DataFrame, testDf: 
 
   model.fit(trainSubseriesScaled, future_covariates=trainCovariatesSubseries)
 
-  #print("MODEL WEIGHTS FINITE:")
 
-  #for name, parameter in model.model.named_parameters():
-  #    print(
-  #        name,
-  #        "finite:", torch.isfinite(parameter).all().item(),
-  #        "nan:", torch.isnan(parameter).any().item()
-  #    )
-
-  #print("MODEL:")
-  #print(model)
 
   fullSeriesScaled = targetScaler.transform(trainSeries.concatenate(testSeries))
   fullCovariatesScaled = covariatesScaler.transform(trainCovariates.concatenate(testCovariates))
 
-  #print("DIRECT MODEL PREDICTION")
-
-  #directForecast = model.predict(
-  #    n=1,
-  #    series=trainSeriesScaled,
-  #    future_covariates=fullCovariatesScaled
-  #)
-
-  #print(directForecast.to_dataframe())
-
-  #print(directForecast.to_dataframe())
-  #directForecast = model.predict(
-  #    n=1,
-  #    series=trainSeriesScaled,
-  #    future_covariates=fullCovariatesScaled
-  #)
-
-  #print(directForecast.to_dataframe())
-  #print(directForecast.to_dataframe().isna().sum())
-
   print("Rolling forecast incoming...")
 
-  #print(
-  #  pd.concat([trainDf, testDf])
-  #  .loc[
-  #      "2026-07-27 19:15":"2026-07-28 19:00",
-  #      ["amount"]
-  #  ]
-  #  .isna()
-  #  .sum()
-  #)
-
-
-
-  #print("Last training target:")
-  #print(trainSeriesScaled.to_dataframe().tail())
-
-  #print("Next covariate:")
-  #print(
-  #    fullCovariatesScaled
-  #    .to_dataframe()
-  #    .loc[
-  #        trainSeries.end_time():
-  #        trainSeries.end_time() + pd.Timedelta(minutes=15)
-  #    ]
-  #)
-  #print("Train covariates NaNs:")
-  #print(trainCovariates.to_dataframe().isna().sum())
-
-  #print("Full covariates NaNs:")
-  #print(fullCovariatesScaled.to_dataframe().isna().sum())
-
-  #print("Full target NaNs:")
-  #print(fullSeriesScaled.to_dataframe().isna().sum())
 
   print("Forecast")
   forecast = model.historical_forecasts(
@@ -1528,12 +1454,55 @@ def trainAndSaveModel(trainDf: pd.DataFrame) -> RNNModel:
     random_state=42
   )
 
+  targetSubseries = [
+    series
+    for series in extract_subseries(target)
+    if len(series) >= 97
+  ]
+
   targetScaler = Scaler()
   covariatesScaler = Scaler()
-  targetScaled = targetScaler.fit_transform(target)
-  covariatesScaled = covariatesScaler.fit_transform(covariates)
 
-  model.fit(targetScaled, future_covariates=covariatesScaled)
+  targetScaler.fit(
+    concatenate(
+      targetSubseries,
+      axis=0,
+      ignore_time_axis=True
+    )
+  )
+
+  covariatesSubseries = []
+
+  for series in targetSubseries:
+    covariatesSliced = covariates.slice(
+      series.start_time(),
+      series.end_time()
+    )
+    covariatesSubseries.append(covariatesSliced)
+
+  covariatesScaler.fit(
+    concatenate(
+      covariatesSubseries,
+      axis=0,
+      ignore_time_axis=True
+    )
+  )
+
+  targetSubseriesScaled = [
+    targetScaler.transform(series)
+    for series in targetSubseries
+  ]
+
+  covariatesSubseriesScaled = [
+    covariatesScaler.transform(series)
+    for series in covariatesSubseries
+  ]
+
+
+  #targetScaled = targetScaler.fit_transform(target)
+  #covariatesScaled = covariatesScaler.fit_transform(covariates)
+
+  model.fit(targetSubseriesScaled, future_covariates=covariatesSubseriesScaled)
   model.save("output/models/parking_rnn")
   joblib.dump(targetScaler, "output/models/parking_rnn_target_scaler.pkl")
   joblib.dump(covariatesScaler, "output/models/parking_rnn_covariates_scaler.pkl")
@@ -1747,7 +1716,7 @@ weeklyBaselineModelEvaluation(trainDf, testDf)
 #trainDfWithCov = enrichData(trainDf)
 #testDfWithCov = enrichData(testDf)
 
-rnnModelEvaluationWithTimeAndWeatherFeatures(trainDf, testDf)
+#rnnModelEvaluationWithTimeAndWeatherFeatures(trainDf, testDf)
 
 #-----------------------------------
 # Test getWeatherData
@@ -1757,7 +1726,7 @@ rnnModelEvaluationWithTimeAndWeatherFeatures(trainDf, testDf)
 #-----------------------------------
 # Train and save model
 #-----------------------------------
-#rnnModel = trainAndSaveModel(trainDf)
+rnnModel = trainAndSaveModel(trainDf)
 
 def predictLots(when: datetime, parkingId: int = 1) -> float:
   # 0. See if when fits our 15m grid
@@ -1766,7 +1735,7 @@ def predictLots(when: datetime, parkingId: int = 1) -> float:
   # 1. make an DataFrame out of it
   df = pd.DataFrame({"timepoint": [when]})
   # get last steps amout of historical data additionally
-  lotsDf = getLotsOfParkinspaceNo(getEngine(), 1)
+  lotsDf = getLotsOfParkinspaceNo(getEngine(), parkingId)
   lotsDf = lotsDf.sort_values("timepoint")
   historyDf = lotsDf[lotsDf['timepoint']<= when].iloc[-96:].copy()
   print(f"Amount of historical data acquired: {len(historyDf)}")
@@ -1776,11 +1745,13 @@ def predictLots(when: datetime, parkingId: int = 1) -> float:
   lastTimeOfData = historyDf["timepoint"].iloc[-1]
   # Compute distance between lastTimeOfData and when
   steps = int((when - lastTimeOfData) / pd.Timedelta(minutes=15))
+  if steps <= 0:
+    raise ValueError("Prediction time must be after the last historical datapoint.")
   # build df together correctly and fill missing timestamps
   historyDf['timepoint'] = pd.to_datetime(historyDf["timepoint"])
   df = pd.concat([historyDf, df])
   df = df.set_index("timepoint")
-  df = df.resample("15min").asfreq()
+  #df = df.resample("15min").asfreq()
   # 2. enrich data with additional infos (weather and time- features)
   df = enrichData(df)
   # 3. load model and scaler
@@ -1813,9 +1784,13 @@ def predictLots(when: datetime, parkingId: int = 1) -> float:
     series=targetScaled,
     future_covariates=covariatesScaled
   )
+  prediction = targetScaler.inverse_transform(prediction)
   predictionDf = prediction.pd_dataframe()
   predictionValue = predictionDf.iloc[-1]["amount"]
   return predictionValue
+
+
+
 
 print("Ended")
 # following needed for development with docker compose watch:
