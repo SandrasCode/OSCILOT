@@ -251,9 +251,9 @@ def getSystemInfo(engine: Engine) -> pd.DataFrame:
 
 def getParkingDecks(engine: Engine) -> pd.DataFrame:
     query = text("""
-        SELECT id, name
+        SELECT id, columnName
         FROM parkingspaces
-        ORDER BY name
+        ORDER BY id
     """)
 
     df = pd.read_sql(query, con=engine)
@@ -264,7 +264,7 @@ def getParkingDecksAsDict(engine: Engine) -> dict:
   df = getParkingDecks(engine)
   parkingDecks = {}
   for _, row in df.iterrows():
-    parkingDecks[row["id"]] = row["name"]
+    parkingDecks[row["id"]] = row["columnName"]
   return parkingDecks
 
 def prepareDataForDB(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -1826,6 +1826,16 @@ def predictLots(when: datetime, parkingId: int = 1) -> float:
 st.markdown("""
 <style>
 
+    /* Prediction result */
+    .stAlert {
+        background-color: rgb(245, 235, 215);
+        border-left: 6px solid rgb(160, 138, 97);
+        color: rgb(55, 48, 42);
+    }
+
+    .stAlert p {
+        color: rgb(55, 48, 42);
+    }
     /* Header mit Logo und Titel */
     .header {
         display: flex;
@@ -1918,6 +1928,8 @@ st.write(
 st.divider()
 
 parkingDecks = getParkingDecksAsDict(getEngine())
+
+#st.write(parkingDecks)
 
 parkingId = st.selectbox(
     "Parkhaus",
