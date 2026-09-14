@@ -140,7 +140,7 @@ def getAllDataFromParkingDecks() -> tuple[pd.DataFrame, pd.Timestamp]:
         csv_response.raise_for_status()
         break
       except requests.RequestException as e:
-        print(f"Download failed (attempt {attempt + 1}/3): {e}")
+        print(f"Download failed (attempt {attempt + 1}/5): {e}")
         if attempt == 4:
             raise
     print(f"Downloading CSV: {csv_url}")
@@ -149,7 +149,7 @@ def getAllDataFromParkingDecks() -> tuple[pd.DataFrame, pd.Timestamp]:
     )
 
   if not dataframes:
-    return pd.DataFrame()
+    return pd.DataFrame(), None
   print("Concatenate files to dataframe")
   df = pd.concat(dataframes, ignore_index=True, sort=False) #slightly more efficient with collecting data and concatening all at once.
 
@@ -194,7 +194,7 @@ def saveSystemInfoToDB(engine: Engine, key: str, value: str) -> bool:
   systemDf = getSystemInfo(engine)
   if key not in systemDf["key_name"].values:
     try:
-      pd.DataFrame({key: [str], value: [str]}).to_sql("system_info", if_exists='append', con=engine, index=False)
+      pd.DataFrame({"key_name": [key], "value": [value]}).to_sql("system_info", if_exists='append', con=engine, index=False)
     except Exception as e:
       returnvalue = False
       print("Failed to save system_info.")
@@ -249,6 +249,11 @@ def getLots(engine: Engine) -> pd.DataFrame:
 def getSystemInfo(engine: Engine) -> pd.DataFrame:
   return pd.read_sql("system_info", con=engine)
 
+def getLastParkingDataDate(engine: Engine) -> pd.Timestamp:
+  systemDf = getSystemInfo(engine)
+  value = systemDf.loc[systemDf["key_name"] == "parking_data_last_date", "value"].iloc[0]
+  return pd.to_datetime(value)
+
 def getParkingDecks(engine: Engine) -> pd.DataFrame:
     query = text("""
         SELECT id, columnName
@@ -289,22 +294,31 @@ def prepareDataForDB(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
   # "Anzahl Parkplätze gesamt" contained
   df = df[pd.to_datetime(df["Datum und Uhrzeit"], errors="coerce").notna()] #filter to filter out rows without correct datetime (happens somteimes)
   #2. build df for parkingspaces
-    #generate IDs since existing DB data may exist in db.
+  #generate IDs since existing DB data may exist in db.
   psdf = getParkingspaces(getEngine())
-  if psdf.empty:
-    lastid = 0 #ids will begin at 1
-  else:
-    lastid = psdf["id"].max() # better than last row because independend of order of data in db
-  nextid = lastid + 1
   parkingdecks = df.columns.drop(['Datum und Uhrzeit'])
-  returnedPdDf = pd.DataFrame()
-  returnedPdDf['columnName'] = parkingdecks
-  returnedPdDf['id'] = range(nextid, nextid+len(returnedPdDf)) #as the last value is exclusive
+  mapping = {}
+  for _, row in psdf.iterrows():
+    mapping[row["columnName"]] = row["id"]
+  if psdf.empty:
+    nextid = 1
+  else:
+    nextid = psdf["id"].max() + 1
+  newParkingspaces = []
+  for parkingdeck in parkingdecks:
+    if parkingdeck not in mapping:
+      mapping[parkingdeck] = nextid
+      newParkingspaces.append({
+        "columnName": parkingdeck,
+        "id": nextid
+      })
+      nextid += 1
+  returnedPdDf = pd.DataFrame(newParkingspaces)
 
   #3. build df for lots
   #list of dfs with "Datum und Uhrzeit" and the values of one Parking Lot
   lots = []
-  mapping = returnedPdDf.set_index("columnName")["id"]
+  #mapping = returnedPdDf.set_index("columnName")["id"]
   workingDf = df.rename(columns= mapping) #rename parkingspaces names to parkingspaces ids
   returnedLotDf = workingDf.melt(id_vars="Datum und Uhrzeit", var_name="parkingId", value_name="amount")
   returnedLotDf = returnedLotDf.rename(columns={"Datum und Uhrzeit": "timepoint"})
@@ -325,6 +339,8 @@ def prepareDataForDB(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
   print("---------------------")
   print("how long is my dataframe?")
   print(len(returnedLotDf))
+  # I have in amount numbers and strings so...
+  returnedLotDf['amount'] = returnedLotDf['amount'].astype(object)
   # I save the status for better prediction
   returnedLotDf['status'] = 'frei'
   # replace bes with 0 because bes is besetzt so 'full'.
@@ -337,6 +353,83 @@ def prepareDataForDB(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
   returnedLotDf = returnedLotDf.drop(returnedLotDf[returnedLotDf['amount'] == 'kei'].index)
   returnedLotDf = returnedLotDf.drop_duplicates(subset=['parkingId', 'timepoint'])
   return returnedPdDf, returnedLotDf
+
+def getNewDataFromParkingDecks() -> tuple[pd.DataFrame, pd.Timestamp]:
+  """
+    Retrieves data which is not yet available in database.
+    Also gets data from subdirectories of data.
+
+    Returns:
+      DataFrame with all informations.
+      Timestamp which represents the last date i have data from
+  """
+  lastDate = getLastParkingDataDate(getEngine())
+  api_url = "https://api.github.com/repos/codeformuenster/parking-decks-muenster/contents/data"
+  def get_csv_files(url):
+    response = requests.get(url)
+    response.raise_for_status()
+    print("Begin getting files")
+    for file in response.json():
+      if file["type"] == "file" and file["name"].endswith(".csv"):
+        fileDate = pd.to_datetime(file["name"].removesuffix(".csv")).date()
+        if fileDate > lastDate.date():
+          yield fileDate, file["download_url"]
+        #break #this is to only get first file for debug purposes, comment out if all data should be received
+      elif file["type"] == "dir":
+        yield from get_csv_files(file["url"])
+
+  dataframes = []
+  latestDate = None
+
+  for fileDate, csv_url in get_csv_files(api_url):
+    if latestDate is None or fileDate > latestDate:
+      latestDate = fileDate
+    for attempt in range(5):
+      try:
+        csv_response = requests.get(csv_url, timeout=30)
+        csv_response.raise_for_status()
+        break
+      except requests.RequestException as e:
+        print(f"Download failed (attempt {attempt + 1}/5): {e}")
+        if attempt == 4:
+            raise
+    print(f"Downloading CSV: {csv_url}")
+    dataframes.append(
+        pd.read_csv(StringIO(csv_response.text))
+    )
+
+  if not dataframes:
+    return pd.DataFrame(), lastDate
+  print("Concatenate files to dataframe")
+  df = pd.concat(dataframes, ignore_index=True, sort=False) #slightly more efficient with collecting data and concatening all at once.
+
+  print(f"Timestamp: {latestDate}")
+  return df, pd.Timestamp(latestDate)
+
+def updateParkingData() -> bool:
+  print("Starting parking data update")
+  webDataDf, lastDate = getNewDataFromParkingDecks()
+  parkSucc = True #no new parking decks on update is not an error. Only an error is.
+  lotsSucc = False
+  systemSucc = False
+  if webDataDf.empty:
+    print("No new parking data available.")
+    return True
+  print(f"Got new parking data up to {lastDate}")
+  parkingspacesDf, lotsDf = prepareDataForDB(webDataDf)
+  returnvalue = False
+  # Save new parking spaces, if there are any
+  if not parkingspacesDf.empty:
+    parkSucc = saveDataFrameToDB(getEngine(), parkingspacesDf, "parkingspaces")
+  if(parkSucc):
+    print("Saving parkingspaces data successful!")
+  lotsSucc = saveDataFrameToDB(getEngine(), lotsDf, 'lots')
+  if(lotsSucc):
+    print("Saving lots data successful!")
+    systemSucc = saveSystemInfoToDB(getEngine(), 'parking_data_last_date', str(lastDate))
+  if(parkSucc and lotsSucc and systemSucc):
+    returnvalue = True
+  return returnvalue
 
 def resetDatabaseAndImportAllData() -> bool:
   """
@@ -1598,7 +1691,158 @@ def predictLots(when: datetime, parkingId: int = 1) -> float:
   )
   prediction = targetScaler.inverse_transform(prediction)
   predictionValue = prediction.last_value()
+  predictionValue = max(0, predictionValue)
+  #<- there can come out of prediction negative amount of lots this is not an error
+  #but a flaw of the technology itself.
   return predictionValue
+
+def setUpStreamlitApp():
+  st.markdown("""
+  <style>
+
+    /* prediction result */
+    .stAlert {
+      background-color: rgb(245, 235, 215);
+      border-left: 6px solid rgb(160, 138, 97);
+      color: rgb(55, 48, 42);
+    }
+
+    .stAlert p {
+      color: rgb(55, 48, 42);
+    }
+    /* header with logo and title */
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+    }
+
+    .header .logo {
+      width: 120px;
+      height: 120px;
+      object-fit: cover;
+      border-radius: 8px;
+    }
+
+    .header h1 {
+      margin: 0;
+      color: rgb(119, 109, 107);
+    }
+    /* background */
+    .stApp {
+      background-color: rgb(225, 215, 195);
+    }
+
+    /* heading */
+    h1 {
+      color: rgb(119, 109, 107) !important;
+    }
+
+    /* subheadings */
+    h2, h3 {
+      color: rgb(80, 68, 58) !important;
+    }
+
+    /* normal text and lables */
+    .stApp p,
+    .stApp label {
+      color: rgb(55, 48, 42);
+    }
+
+    /* buttons */
+    .stButton > button {
+      background-color: rgb(160, 138, 97);
+      color: white;
+      border: none;
+    }
+
+    .stButton > button:hover {
+      background-color: rgb(119, 109, 107);
+      color: white;
+    }
+
+    /* selectbox */
+    .stSelectbox > div > div {
+      background-color: rgb(252, 248, 240);
+      color: rgb(55, 48, 42);
+    }
+
+    /* text inside of select box */
+    .stSelectbox [data-baseweb="select"] * {
+      color: rgb(55, 48, 42);
+    }
+
+    /* dropdown menu */
+    [data-baseweb="popover"] {
+      background-color: rgb(252, 248, 240);
+    }
+
+    [data-baseweb="popover"] * {
+      color: rgb(55, 48, 42);
+    }
+  </style>
+  """, unsafe_allow_html=True)
+
+  st.set_page_config(
+    page_title="OSCILOT - Oscillation-based Forecasting of Occupancy in Parking Lots",
+    page_icon="🅿️"
+  )
+
+  st.markdown("""
+  <div class="header">
+    <img src="https://upload.wikimedia.org/wikipedia/commons/b/b5/081_Ocelot_in_Encontro_das_%C3%81guas_State_Park_Photo_by_Giles_Laurent.jpg?utm_source=commons.wikimedia.org&utm_campaign=index&utm_content=original" class="logo">
+    <h1>OSCILOT - Oscillation-based Forecasting of Occupancy in Parking Lots</h1>
+  </div>
+  """, unsafe_allow_html=True)
+
+  st.write(
+    "Vorhersage der verfügbaren Parkplätze für ein Münsteraner Parkhaus."
+  )
+
+  st.divider()
+
+  parkingDecks = getParkingDecksAsDict(getEngine())
+
+  #st.write(parkingDecks)
+
+  parkingId = st.selectbox(
+    "Parkhaus",
+    options=parkingDecks.keys(),
+    format_func=lambda parkingId: parkingDecks[parkingId]
+  )
+
+
+  predictionDate = st.date_input("Datum")
+
+  predictionTime = st.time_input(
+    "Uhrzeit",
+    value=time(12, 0),
+    step=900  # 15 minutes
+  )
+
+  st.divider()
+
+  # prediction
+  if st.button("Vorhersage starten", type="primary"):
+    when = datetime.combine(
+      predictionDate,
+      predictionTime
+    )
+
+    try:
+      with st.spinner("🔭 OSCILOT sucht nach freien Parkplätzen ..."):
+        prediction = predictLots(
+          when=when,
+          parkingId=parkingId
+        )
+
+      st.success(
+        f"Für {when.strftime('%d.%m.%Y um %H:%M')} "
+        f"werden ungefähr **{prediction:.0f} freie Parkplätze** erwartet."
+      )
+
+    except Exception as e:
+      st.error(f"Vorhersage konnte nicht erstellt werden: {e}")
 #-----------------------------------
 # Call everything!
 #-----------------------------------
@@ -1622,8 +1866,8 @@ def predictLots(when: datetime, parkingId: int = 1) -> float:
 #__________________
 #Get Data from Parkinspace 1
 #__________________
-#lotsDf = getLotsOfParkinspaceNo(getEngine(), 1)
-#print("got lots from 1")
+#!#lotsDf = getLotsOfParkinspaceNo(getEngine(), 1)
+#!#print("got lots from 1")
 
 #__________________
 #Analyze data visually
@@ -1672,13 +1916,19 @@ def predictLots(when: datetime, parkingId: int = 1) -> float:
 #Change type of timepoint to datetime (comming from database it wasnt yet)
 #__________________
 #Timepoint is datetime
-#lotsDf["timepoint"] = pd.to_datetime(lotsDf["timepoint"])
+#!#lotsDf["timepoint"] = pd.to_datetime(lotsDf["timepoint"])
 
 #__________________
 #Defined time period for Experiment 0
 #__________________
 # 0st experiment: #2026-03-10 ─────────────────────────────────── 2026-09-02
 #timeseriesDf = lotsDf.loc[(lotsDf['timepoint'] >= "2026-03-10") & (lotsDf['timepoint'] <= "2026-09-02")]
+
+#__________________
+#Defined time period for Experiment B
+#__________________
+# Bst experiment: 2024–2026
+#!#timeseriesDf = lotsDf.loc[(lotsDf['timepoint'] >= "2024-01-01") & (lotsDf['timepoint'] <= "2026-09-02")]
 
 #__________________
 #Defined time period for Experiment 1
@@ -1690,18 +1940,18 @@ def predictLots(when: datetime, parkingId: int = 1) -> float:
 #Clean Data / Create proper timeseries data:
 #__________________
 # 1. remove ges, as it will not be par of our training.
-#timeseriesDf = timeseriesDf.loc[timeseriesDf['status'] != 'ges']
+#!#timeseriesDf = timeseriesDf.loc[timeseriesDf['status'] != 'ges']
 
 # (2. everything with status 'bes' = 0 is already the case)
 
 # 3. 15 minute grid. If there is an hole in the data it will not wrongfully filled with resample!
-#timeseriesDf = (
-#  timeseriesDf
-#  .set_index("timepoint")
+#!#timeseriesDf = (
+#!#  timeseriesDf
+#!#  .set_index("timepoint")
 #  .resample("15min")
 #  .last()
-#  .sort_index()
-#)
+#!#  .sort_index()
+#!#)
 
 #__________________
 #Analyse how many NaN are created by our resampling
@@ -1717,7 +1967,7 @@ def predictLots(when: datetime, parkingId: int = 1) -> float:
 #__________________
 # investigate gaps in data:
 #__________________
-#testDf = timeseriesDf.dropna(subset=["amount"]).sort_index()
+#!#testDf = timeseriesDf.dropna(subset=["amount"]).sort_index()
 
 #diffs = testDf.index.to_series().diff()
 
@@ -1747,7 +1997,7 @@ def predictLots(when: datetime, parkingId: int = 1) -> float:
 #Enrich data with weather and time features
 #__________________
 
-#timeseriesDf = enrichData(timeseriesDf)
+#!#timeseriesDf = enrichData(timeseriesDf)
 #print("timeseries with timestuff and weatherstuff")
 #pd.set_option("display.max_columns", None)
 #print(timeseriesDf)
@@ -1757,12 +2007,12 @@ def predictLots(when: datetime, parkingId: int = 1) -> float:
 #__________________
 
 
-#splitIndex = int(len(timeseriesDf) * 0.8)
-#trainDf = timeseriesDf.iloc[:splitIndex].copy()
-#testDf = timeseriesDf.iloc[splitIndex:].copy()
+#!#splitIndex = int(len(timeseriesDf) * 0.8)
+#!#trainDf = timeseriesDf.iloc[:splitIndex].copy()
+#!#testDf = timeseriesDf.iloc[splitIndex:].copy()
 
-#print("Train:", trainDf.index.min(), "->", trainDf.index.max())
-#print("Test:", testDf.index.min(), "->", testDf.index.max())
+#!#print("Train:", trainDf.index.min(), "->", trainDf.index.max())
+#!#print("Test:", testDf.index.min(), "->", testDf.index.max())
 
 #-----------------------------------
 # Predict Baseline and see MAE and RMSE
@@ -1806,7 +2056,7 @@ def predictLots(when: datetime, parkingId: int = 1) -> float:
 #trainDfWithCov = enrichData(trainDf)
 #testDfWithCov = enrichData(testDf)
 
-#rnnModelEvaluationWithTimeAndWeatherFeatures(trainDf, testDf)
+#!#rnnModelEvaluationWithTimeAndWeatherFeatures(trainDf, testDf)
 
 #-----------------------------------
 # Test getWeatherData
@@ -1822,155 +2072,13 @@ def predictLots(when: datetime, parkingId: int = 1) -> float:
 #-----------------------------------
 # set up streamlit app
 #-----------------------------------
+# setUpStreamlitApp()
 
-st.markdown("""
-<style>
-
-    /* Prediction result */
-    .stAlert {
-        background-color: rgb(245, 235, 215);
-        border-left: 6px solid rgb(160, 138, 97);
-        color: rgb(55, 48, 42);
-    }
-
-    .stAlert p {
-        color: rgb(55, 48, 42);
-    }
-    /* Header mit Logo und Titel */
-    .header {
-        display: flex;
-        align-items: center;
-        gap: 20px;
-    }
-
-    .header .logo {
-        width: 120px;
-        height: 120px;
-        object-fit: cover;
-        border-radius: 8px;
-    }
-
-    .header h1 {
-        margin: 0;
-        color: rgb(119, 109, 107);
-    }
-    /* Gesamter Hintergrund */
-    .stApp {
-        background-color: rgb(225, 215, 195);
-    }
-
-    /* Hauptüberschrift */
-    h1 {
-        color: rgb(119, 109, 107) !important;
-    }
-
-    /* Unterüberschriften */
-    h2, h3 {
-        color: rgb(80, 68, 58) !important;
-    }
-
-    /* Normale Texte und Labels */
-    .stApp p,
-    .stApp label {
-        color: rgb(55, 48, 42);
-    }
-
-    /* Buttons */
-    .stButton > button {
-        background-color: rgb(160, 138, 97);
-        color: white;
-        border: none;
-    }
-
-    .stButton > button:hover {
-        background-color: rgb(119, 109, 107);
-        color: white;
-    }
-
-    /* Selectbox */
-    .stSelectbox > div > div {
-        background-color: rgb(252, 248, 240);
-        color: rgb(55, 48, 42);
-    }
-
-    /* Text innerhalb der Selectbox */
-    .stSelectbox [data-baseweb="select"] * {
-        color: rgb(55, 48, 42);
-    }
-
-    /* Dropdown-Menü */
-    [data-baseweb="popover"] {
-        background-color: rgb(252, 248, 240);
-    }
-
-    [data-baseweb="popover"] * {
-        color: rgb(55, 48, 42);
-    }
-</style>
-""", unsafe_allow_html=True)
-
-st.set_page_config(
-  page_title="OSCILOT - Oscillation-based Forecasting of Occupancy in Parking Lots",
-  page_icon="🅿️"
-)
-
-st.markdown("""
-<div class="header">
-    <img src="https://upload.wikimedia.org/wikipedia/commons/b/b5/081_Ocelot_in_Encontro_das_%C3%81guas_State_Park_Photo_by_Giles_Laurent.jpg?utm_source=commons.wikimedia.org&utm_campaign=index&utm_content=original" class="logo">
-    <h1>OSCILOT - Oscillation-based Forecasting of Occupancy in Parking Lots</h1>
-</div>
-""", unsafe_allow_html=True)
-
-st.write(
-    "Vorhersage der verfügbaren Parkplätze für ein Münsteraner Parkhaus."
-)
-
-st.divider()
-
-parkingDecks = getParkingDecksAsDict(getEngine())
-
-#st.write(parkingDecks)
-
-parkingId = st.selectbox(
-    "Parkhaus",
-    options=parkingDecks.keys(),
-    format_func=lambda parkingId: parkingDecks[parkingId]
-)
-
-
-predictionDate = st.date_input("Datum")
-
-predictionTime = st.time_input(
-  "Uhrzeit",
-  value=time(12, 0),
-  step=900  # 15 minutes
-)
-
-st.divider()
-
-# prediction
-if st.button("Vorhersage starten", type="primary"):
-
-    when = datetime.combine(
-      predictionDate,
-      predictionTime
-    )
-
-    try:
-      with st.spinner("🔭 OSCILOT sucht nach freien Parkplätzen ..."):
-        prediction = predictLots(
-          when=when,
-          parkingId=parkingId
-        )
-
-      st.success(
-        f"Für {when.strftime('%d.%m.%Y um %H:%M')} "
-        f"werden ungefähr **{prediction:.0f} freie Parkplätze** erwartet."
-      )
-
-    except Exception as e:
-      st.error(f"Vorhersage konnte nicht erstellt werden: {e}")
-
+systemDf = getSystemInfo(getEngine())
+print(systemDf)
+updateParkingData()
+systemDf = getSystemInfo(getEngine())
+print(systemDf)
 
 print("Ended")
 # following needed for development with docker compose watch:
