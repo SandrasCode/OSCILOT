@@ -1823,14 +1823,93 @@ def predictLots(when: datetime, parkingId: int = 1) -> float:
 # set up streamlit app
 #-----------------------------------
 
+st.markdown("""
+<style>
+
+    /* Header mit Logo und Titel */
+    .header {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+    }
+
+    .header .logo {
+        width: 120px;
+        height: 120px;
+        object-fit: cover;
+        border-radius: 8px;
+    }
+
+    .header h1 {
+        margin: 0;
+        color: rgb(119, 109, 107);
+    }
+    /* Gesamter Hintergrund */
+    .stApp {
+        background-color: rgb(225, 215, 195);
+    }
+
+    /* Hauptüberschrift */
+    h1 {
+        color: rgb(119, 109, 107) !important;
+    }
+
+    /* Unterüberschriften */
+    h2, h3 {
+        color: rgb(80, 68, 58) !important;
+    }
+
+    /* Normale Texte und Labels */
+    .stApp p,
+    .stApp label {
+        color: rgb(55, 48, 42);
+    }
+
+    /* Buttons */
+    .stButton > button {
+        background-color: rgb(160, 138, 97);
+        color: white;
+        border: none;
+    }
+
+    .stButton > button:hover {
+        background-color: rgb(119, 109, 107);
+        color: white;
+    }
+
+    /* Selectbox */
+    .stSelectbox > div > div {
+        background-color: rgb(252, 248, 240);
+        color: rgb(55, 48, 42);
+    }
+
+    /* Text innerhalb der Selectbox */
+    .stSelectbox [data-baseweb="select"] * {
+        color: rgb(55, 48, 42);
+    }
+
+    /* Dropdown-Menü */
+    [data-baseweb="popover"] {
+        background-color: rgb(252, 248, 240);
+    }
+
+    [data-baseweb="popover"] * {
+        color: rgb(55, 48, 42);
+    }
+</style>
+""", unsafe_allow_html=True)
 
 st.set_page_config(
   page_title="OSCILOT - Oscillation-based Forecasting of Occupancy in Parking Lots",
   page_icon="🅿️"
 )
 
-
-st.title("OSCILOT - Oscillation-based Forecasting of Occupancy in Parking Lots")
+st.markdown("""
+<div class="header">
+    <img src="https://upload.wikimedia.org/wikipedia/commons/b/b5/081_Ocelot_in_Encontro_das_%C3%81guas_State_Park_Photo_by_Giles_Laurent.jpg?utm_source=commons.wikimedia.org&utm_campaign=index&utm_content=original" class="logo">
+    <h1>OSCILOT - Oscillation-based Forecasting of Occupancy in Parking Lots</h1>
+</div>
+""", unsafe_allow_html=True)
 
 st.write(
     "Vorhersage der verfügbaren Parkplätze für ein Münsteraner Parkhaus."
