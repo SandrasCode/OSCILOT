@@ -28,7 +28,6 @@ from darts.utils.missing_values import extract_subseries
 from darts import concatenate
 import streamlit as st
 
-
 engine = None
 
 def resetDatabaseContent(engine: Engine) -> bool:
@@ -249,6 +248,24 @@ def getLots(engine: Engine) -> pd.DataFrame:
 
 def getSystemInfo(engine: Engine) -> pd.DataFrame:
   return pd.read_sql("system_info", con=engine)
+
+def getParkingDecks(engine: Engine) -> pd.DataFrame:
+    query = text("""
+        SELECT id, name
+        FROM parkingspaces
+        ORDER BY name
+    """)
+
+    df = pd.read_sql(query, con=engine)
+
+    return df
+
+def getParkingDecksAsDict(engine: Engine) -> dict:
+  df = getParkingDecks(engine)
+  parkingDecks = {}
+  for _, row in df.iterrows():
+    parkingDecks[row["id"]] = row["name"]
+  return parkingDecks
 
 def prepareDataForDB(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
   """
@@ -1821,13 +1838,14 @@ st.write(
 
 st.divider()
 
-# input, TODO: use names from database instead of numbers
-parkingId = st.number_input(
-  "Parkhaus",
-  min_value=1,
-  value=1,
-  step=1
+parkingDecks = getParkingDecksAsDict(getEngine())
+
+parkingId = st.selectbox(
+    "Parkhaus",
+    options=parkingDecks.keys(),
+    format_func=lambda parkingId: parkingDecks[parkingId]
 )
+
 
 predictionDate = st.date_input("Datum")
 
