@@ -1957,10 +1957,12 @@ if st.button("Vorhersage starten", type="primary"):
     )
 
     try:
-      prediction = predictLots(
-        when=when,
-        parkingId=parkingId
-      )
+      with st.spinner("🔭 OSCILOT sucht nach freien Parkplätzen ..."):
+        prediction = predictLots(
+          when=when,
+          parkingId=parkingId
+        )
+
       st.success(
         f"Für {when.strftime('%d.%m.%Y um %H:%M')} "
         f"werden ungefähr **{prediction:.0f} freie Parkplätze** erwartet."
