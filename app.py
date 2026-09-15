@@ -27,6 +27,7 @@ from datetime import datetime, time
 from darts.utils.missing_values import extract_subseries
 from darts import concatenate
 import streamlit as st
+from sklearn.preprocessing import OneHotEncoder
 
 engine = None
 
@@ -1536,41 +1537,76 @@ def testWeatherCases():
 def trainAndSaveModel(trainDf: pd.DataFrame) -> RNNModel:
   print("Train and save rnn model")
 
-  target = TimeSeries.from_dataframe(
-    trainDf.reset_index(),
-    time_col="timepoint",
-    value_cols="amount"
+  # -----------------------------------
+  # One-hot encode parkingId
+  # -----------------------------------
+
+  encoder = OneHotEncoder(
+    sparse_output=False,
+    handle_unknown="ignore"
   )
 
-  covariates = TimeSeries.from_dataframe(
-    trainDf.reset_index(),
-    time_col="timepoint",
-    value_cols=[
-      "time_sin",
-      "time_cos",
-      "weekday_sin",
-      "weekday_cos",
-      "temperature",
-      "precipitation"
-    ]
+  parkingIdEncoded = encoder.fit_transform(
+    trainDf[["parkingId"]]
   )
 
-  model = RNNModel(
-    model="LSTM",
-    input_chunk_length=96,
-    output_chunk_length=1,
-    training_length=96,
-    n_rnn_layers=1,
-    hidden_dim=25,
-    n_epochs=10,
-    random_state=42
-  )
-
-  targetSubseries = [
-    series
-    for series in extract_subseries(target)
-    if len(series) >= 97
+  parkingIdColumns = [
+    f"parkingId_{parkingId}"
+    for parkingId in encoder.categories_[0]
   ]
+
+  for i, column in enumerate(parkingIdColumns):
+    trainDf[column] = parkingIdEncoded[:, i]
+
+  # -----------------------------------
+  # Create target and covariates
+  # separately for each parking house
+  # -----------------------------------
+
+  targetSubseries = []
+  covariatesSubseries = []
+
+  covariateColumns = [
+    "time_sin",
+    "time_cos",
+    "weekday_sin",
+    "weekday_cos",
+    "temperature",
+    "precipitation"
+  ] + parkingIdColumns
+
+  for parkingId, parkingDf in trainDf.groupby("parkingId"):
+
+    parkingDf = parkingDf.sort_index()
+
+    target = TimeSeries.from_dataframe(
+      parkingDf.reset_index(),
+      time_col="timepoint",
+      value_cols="amount"
+    )
+
+    covariates = TimeSeries.from_dataframe(
+      parkingDf.reset_index(),
+      time_col="timepoint",
+      value_cols=covariateColumns
+    )
+
+    # Split at gaps in the data
+    targetParts = extract_subseries(target)
+    for targetPart in targetParts:
+      if len(targetPart) < 97:
+        continue
+      covariatesPart = covariates.slice(
+        targetPart.start_time(),
+        targetPart.end_time()
+      )
+      targetSubseries.append(targetPart)
+      covariatesSubseries.append(covariatesPart)
+
+  print(f"Number of training series: {len(targetSubseries)}")
+  # -----------------------------------
+  # Scale target and covariates
+  # -----------------------------------
 
   targetScaler = Scaler()
   covariatesScaler = Scaler()
@@ -1582,15 +1618,6 @@ def trainAndSaveModel(trainDf: pd.DataFrame) -> RNNModel:
       ignore_time_axis=True
     )
   )
-
-  covariatesSubseries = []
-
-  for series in targetSubseries:
-    covariatesSliced = covariates.slice(
-      series.start_time(),
-      series.end_time()
-    )
-    covariatesSubseries.append(covariatesSliced)
 
   covariatesScaler.fit(
     concatenate(
@@ -1610,16 +1637,55 @@ def trainAndSaveModel(trainDf: pd.DataFrame) -> RNNModel:
     for series in covariatesSubseries
   ]
 
+  # -----------------------------------
+  # Create model
+  # -----------------------------------
 
-  #targetScaled = targetScaler.fit_transform(target)
-  #covariatesScaled = covariatesScaler.fit_transform(covariates)
+  model = RNNModel(
+    model="LSTM",
+    input_chunk_length=96,
+    output_chunk_length=1,
+    training_length=96,
+    n_rnn_layers=1,
+    hidden_dim=25,
+    n_epochs=10,
+    random_state=42
+  )
 
-  model.fit(targetSubseriesScaled, future_covariates=covariatesSubseriesScaled)
-  model.save("output/models/parking_rnn")
-  joblib.dump(targetScaler, "output/models/parking_rnn_target_scaler.pkl")
-  joblib.dump(covariatesScaler, "output/models/parking_rnn_covariates_scaler.pkl")
+  # -----------------------------------
+  # Train
+  # -----------------------------------
+
+  model.fit(
+    targetSubseriesScaled,
+    future_covariates=covariatesSubseriesScaled
+  )
+
+  # -----------------------------------
+  # Save everything
+  # -----------------------------------
+
+  model.save(
+    "output/models/parking_rnn"
+  )
+
+  joblib.dump(
+    targetScaler,
+    "output/models/parking_rnn_target_scaler.pkl"
+  )
+
+  joblib.dump(
+    covariatesScaler,
+    "output/models/parking_rnn_covariates_scaler.pkl"
+  )
+
+  joblib.dump(
+    encoder,
+    "output/models/parking_rnn_parking_encoder.pkl"
+  )
 
   return model
+
 
 def predictLots(when: datetime, parkingId: int = 1) -> float:
   # 0. See if when fits our 15m grid
@@ -1656,6 +1722,20 @@ def predictLots(when: datetime, parkingId: int = 1) -> float:
   covariatesDf = covariatesDf.set_index("timepoint")
   # 2. enrich data with additional infos (weather and time- features)
   covariatesDf = enrichData(covariatesDf)
+
+  encoder = joblib.load("output/models/parking_rnn_parking_encoder.pkl")
+  parkingIdEncoded = encoder.transform(pd.DataFrame({
+    "parkingId": [parkingId] * len(covariatesDf)
+  }))
+
+  parkingIdColumns = [
+    f"parkingId_{parkingId}"
+    for parkingId in encoder.categories_[0]
+  ]
+
+  for i, column in enumerate(parkingIdColumns):
+    covariatesDf[column] = parkingIdEncoded[:, i]
+
   # 3. load model and scaler
   targetScaler = joblib.load("output/models/parking_rnn_target_scaler.pkl")
   covariatesScaler = joblib.load("output/models/parking_rnn_covariates_scaler.pkl")
@@ -1676,7 +1756,7 @@ def predictLots(when: datetime, parkingId: int = 1) -> float:
       "weekday_cos",
       "temperature",
       "precipitation"
-    ]
+    ] + parkingIdColumns
   )
   targetScaled = targetScaler.transform(target)
   covariatesScaled = covariatesScaler.transform(covariates)
@@ -2063,10 +2143,38 @@ def setUpStreamlitApp():
 #-----------------------------------
 #testWeatherCases()
 
+
+
+def prepareMultiParkingTrainingData(df: pd.DataFrame) -> pd.DataFrame:
+  # 1. ges needs to go
+  df = df.loc[df['status'] != 'ges'].copy()
+  # 2. 15 minute grid
+  df["timepoint"] = pd.to_datetime(df["timepoint"])
+  df = df.loc[df["timepoint"] >= "2025-09-01"].copy()
+  df = (
+    df
+    .set_index("timepoint")
+    .groupby("parkingId")
+    .resample("15min")
+    .last()
+    #.reset_index()
+  )
+
+  df = df.sort_index()
+  # 3. enrich data
+  df = enrichData(df)
+  return df
+
+def trainMultiParkingModel() -> RNNModel:
+  df = getLots(getEngine())
+  df = prepareMultiParkingTrainingData(df)
+  mod = trainAndSaveModel(df)
+  return mod
+
 #-----------------------------------
 # Train and save model
 #-----------------------------------
-#rnnModel = trainAndSaveModel(trainDf)
+# rnnModel = trainAndSaveModel(trainDf)
 
 
 #-----------------------------------
