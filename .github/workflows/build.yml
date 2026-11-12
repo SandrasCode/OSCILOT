@@ -24,6 +24,12 @@ jobs:
           pip install -r requirements.txt
           pip install pre-commit pyright
 
+      - name: Show package versions
+        run: |
+          python -m pip show statsmodels
+          python -m pip show scikit-learn
+          python -m pip show pyright
+
       - name: Run pre-commit hooks
         run: pre-commit run
 
