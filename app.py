@@ -25,7 +25,8 @@ from darts.models import RNNModel
 from darts.dataprocessing.transformers import Scaler
 import joblib
 import traceback
-from datetime import datetime, time
+from datetime import datetime, time, date
+from collections.abc import Iterator
 #import torch
 from darts.utils.missing_values import extract_subseries
 from darts import concatenate
@@ -109,7 +110,7 @@ def getEngine() -> Engine:
 
 
 
-def getAllDataFromParkingDecks() -> tuple[pd.DataFrame, pd.Timestamp]:
+def getAllDataFromParkingDecks() -> tuple[pd.DataFrame, pd.Timestamp | None]:
   """
     Retrieves historical data from 2019 to the latest available date,
     which is typically about one day behind the current date.
@@ -120,7 +121,7 @@ def getAllDataFromParkingDecks() -> tuple[pd.DataFrame, pd.Timestamp]:
       Timestamp which represents the last date i have data from
   """
   api_url = "https://api.github.com/repos/codeformuenster/parking-decks-muenster/contents/data"
-  def get_csv_files(url):
+  def get_csv_files(url: str)-> Iterator[tuple[date, str]]:
     response = requests.get(url)
     response.raise_for_status()
     print("Begin getting files")
@@ -132,12 +133,13 @@ def getAllDataFromParkingDecks() -> tuple[pd.DataFrame, pd.Timestamp]:
       elif file["type"] == "dir":
         yield from get_csv_files(file["url"])
 
-  dataframes = []
+  dataframes:  list[pd.DataFrame] = []
   latestDate = None
 
   for fileDate, csv_url in get_csv_files(api_url):
     if latestDate is None or fileDate > latestDate:
-      latestDate = fileDate
+      latestDate: date | None = None
+    csv_response: requests.Response | None = None
     for attempt in range(5):
       try:
         csv_response = requests.get(csv_url, timeout=30)
@@ -146,17 +148,20 @@ def getAllDataFromParkingDecks() -> tuple[pd.DataFrame, pd.Timestamp]:
       except requests.RequestException as e:
         print(f"Download failed (attempt {attempt + 1}/5): {e}")
         if attempt == 4:
-            raise
+          raise
+    if csv_response is None:
+      raise RuntimeError("CSV download failed without an exception.")
     print(f"Downloading CSV: {csv_url}")
     dataframes.append(
-        pd.read_csv(StringIO(csv_response.text))
+      pd.read_csv(StringIO(csv_response.text))
     )
 
   if not dataframes:
     return pd.DataFrame(), None
   print("Concatenate files to dataframe")
   df = pd.concat(dataframes, ignore_index=True, sort=False) #slightly more efficient with collecting data and concatening all at once.
-
+  if latestDate is None:
+    return pd.DataFrame(), None
   print(f"Timestamp: {latestDate}")
   return df, pd.Timestamp(latestDate) #hopefully this works? this will be a heck of a dataframe maybe later just slice the new stuff?
 
