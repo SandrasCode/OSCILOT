@@ -33,9 +33,9 @@ jobs:
       - name: Diagnose type information
         run: |
           echo "=== Additional type stub packages ==="
-          python -m pip show pandas-stubs
-          python -m pip show sklearn-stubs
-          python -m pip show statsmodels-stubs
+          python -m pip show pandas-stubs || true
+          python -m pip show sklearn-stubs || true
+          python -m pip show statsmodels-stubs || true
 
           echo "=== Installed module locations ==="
           python - <<'PY'
