@@ -1,4 +1,7 @@
+# TODO: sort functions in appropriate .py files according there responsibilities.
+
 import pandas as pd # type: ignore
+from pandas import Series
 #students = pd.Series(['Al', 'Bo', 'Ce'], name = 'students')
 #print("Lalala this one tries the CI pardy")
 #print(students)
@@ -77,7 +80,7 @@ def initDatabase(resetDb: bool = False) -> Engine:
 # following arose because of docker-timing-problems but in real world szenarios this mitght be a good idea too:
   for attempt in range(30):
       try:
-          with engine.connect() as conn:
+          with engine.connect():
               print("Database connected!")
               break
       except OperationalError:
@@ -590,7 +593,7 @@ def analyzeDataOfLots(lotsDf: pd.DataFrame):
   # autocorrelation
   #df = lotsDf.loc[lotsDf['parkingId'] == 1]
   df = lotsDf
-  series = df.set_index("timepoint")["amount"]
+  series: Series = df.set_index("timepoint")["amount"]
   plot_acf(
     series.dropna(),
     lags=7 * 24 * 12
@@ -1640,7 +1643,7 @@ def trainAndSaveModel(trainDf: pd.DataFrame) -> RNNModel:
   # -----------------------------------
   # Create model
   # -----------------------------------
-
+  print("Create Model")
   model = RNNModel(
     model="LSTM",
     input_chunk_length=96,
@@ -1656,6 +1659,7 @@ def trainAndSaveModel(trainDf: pd.DataFrame) -> RNNModel:
   # Train
   # -----------------------------------
 
+  print("begin fitting")
   model.fit(
     targetSubseriesScaled,
     future_covariates=covariatesSubseriesScaled
@@ -1664,7 +1668,7 @@ def trainAndSaveModel(trainDf: pd.DataFrame) -> RNNModel:
   # -----------------------------------
   # Save everything
   # -----------------------------------
-
+  print("saving")
   model.save(
     "output/models/parking_rnn"
   )
@@ -2151,23 +2155,27 @@ def prepareMultiParkingTrainingData(df: pd.DataFrame) -> pd.DataFrame:
   # 2. 15 minute grid
   df["timepoint"] = pd.to_datetime(df["timepoint"])
   df = df.loc[df["timepoint"] >= "2025-09-01"].copy()
+  #df = df.loc[df["timepoint"] >= "2026-09-01"].copy()
   df = (
     df
     .set_index("timepoint")
     .groupby("parkingId")
     .resample("15min")
     .last()
-    #.reset_index()
+    .reset_index()
   )
 
-  df = df.sort_index()
+  df = df.set_index("timepoint").sort_index()
   # 3. enrich data
   df = enrichData(df)
   return df
 
 def trainMultiParkingModel() -> RNNModel:
+  print("getlots")
   df = getLots(getEngine())
+  print("prepareMultiParkingTrainingData")
   df = prepareMultiParkingTrainingData(df)
+  print("beginActualTraining")
   mod = trainAndSaveModel(df)
   return mod
 
@@ -2182,13 +2190,19 @@ def trainMultiParkingModel() -> RNNModel:
 #-----------------------------------
 # setUpStreamlitApp()
 
-systemDf = getSystemInfo(getEngine())
-print(systemDf)
-updateParkingData()
-systemDf = getSystemInfo(getEngine())
-print(systemDf)
+#systemDf = getSystemInfo(getEngine())
+#print(systemDf)
+#updateParkingData()
+#print("begin")
+#print(datetime.now())
+#systemDf = getSystemInfo(getEngine())
+#print(systemDf)
+#print("Model train begin")
+#model = trainMultiParkingModel()
 
+setUpStreamlitApp()
+print(datetime.now())
 print("Ended")
 # following needed for development with docker compose watch:
-import time
-time_module.sleep(500000)
+#import time
+#time_module.sleep(500000)
