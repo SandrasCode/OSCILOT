@@ -27,3 +27,4 @@ ignore = [
 typeCheckingMode = "strict"
 pythonVersion = "3.12"
 exclude = [".venv"]
+reportMissingTypeStubs = "none"
