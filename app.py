@@ -8,6 +8,7 @@
 # pyright: reportMissingTypeArgument=false
 import pandas as pd # type: ignore
 from pandas import Series
+from typing import cast
 #students = pd.Series(['Al', 'Bo', 'Ce'], name = 'students')
 #print("Lalala this one tries the CI pardy")
 #print(students)
@@ -345,9 +346,8 @@ def prepareDataForDB(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
   returnedLotDf = returnedLotDf.dropna(subset=["amount"])
   returnedLotDf = returnedLotDf.drop_duplicates() #needed... :shrug:
   print("Which values are in my columns?")
-  amount_numeric: Series = pd.to_numeric(
-    returnedLotDf["amount"],
-    errors="coerce"
+  amount_numeric = cast (Series,
+    pd.to_numeric(returnedLotDf["amount"], errors="coerce")
   )
   print(returnedLotDf.loc[amount_numeric.isna(), "amount"].value_counts(dropna=False))
   print("---------------------")
@@ -427,6 +427,10 @@ def getNewDataFromParkingDecks() -> tuple[pd.DataFrame, pd.Timestamp]:
   print("Concatenate files to dataframe")
   df = pd.concat(dataframes, ignore_index=True, sort=False) #slightly more efficient with collecting data and concatening all at once.
 
+  # Following shoult not happen because of program logic but pyright needs it:
+  if latestDate is None:
+    raise RuntimeError("No latest date available.")
+
   print(f"Timestamp: {latestDate}")
   return df, pd.Timestamp(latestDate)
 
@@ -463,6 +467,7 @@ def resetDatabaseAndImportAllData() -> bool:
       if saving all data was successful it returns True, otherwise False
   """
   returnvalue = False
+  systemSucc = False
   engine = initDatabase(resetDb=True)
   print("Database initialized")
   dataFromWebDf, lastDate = getAllDataFromParkingDecks()
