@@ -1,5 +1,11 @@
 # TODO: sort functions in appropriate .py files according there responsibilities.
 
+# Temporarily suppressed pyright errors to debug from A to Z..
+# pyright: reportUnknownVariableType=false
+# pyright: reportUnknownMemberType=false
+# pyright: reportUnknownArgumentType=false
+# pyright: reportUnknownParameterType=false
+# pyright: reportMissingTypeArgument=false
 import pandas as pd # type: ignore
 from pandas import Series
 #students = pd.Series(['Al', 'Bo', 'Ce'], name = 'students')
@@ -380,7 +386,7 @@ def getNewDataFromParkingDecks() -> tuple[pd.DataFrame, pd.Timestamp]:
     print("Begin getting files")
     for file in response.json():
       if file["type"] == "file" and file["name"].endswith(".csv"):
-        fileDate = pd.to_datetime(file["name"].removesuffix(".csv")).date()
+        fileDate: date = pd.to_datetime(file["name"].removesuffix(".csv")).date()
         if fileDate > lastDate.date():
           yield fileDate, file["download_url"]
         #break #this is to only get first file for debug purposes, comment out if all data should be received
@@ -1482,7 +1488,7 @@ def enrichData(df: pd.DataFrame) -> pd.DataFrame:
   df = addWeatherFeatures(df)
   return df
 
-def printWeatherTest(name, start, end):
+def printWeatherTest(name: str, start: pd.Timestamp, end: pd.Timestamp):
   print(f"\n{'=' * 50}")
   print(name)
   print(f"Requested: {start} -> {end}")
