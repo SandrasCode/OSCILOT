@@ -768,14 +768,15 @@ def baselineModelEvaluation(trainDf: pd.DataFrame, testDf: pd.DataFrame):
   #<- gives me a df with index Timepoints and amount column
 
   # Test only those where we have values:
+  #fix of the fix for pyright:
   evaluationDf = pd.concat(
-    [
-        testDf["amount"].rename(name="actual"), #<- fix for pyright
-        predictedValues["amount"].rename(name="prediction")
-    ],
-    axis=1
-).dropna()
-
+      [
+          testDf["amount"],
+          predictedValues["amount"]
+      ],
+      axis=1
+  ).dropna()
+  evaluationDf.columns = ["actual", "prediction"]
   mae = mean_absolute_error(
     evaluationDf["actual"],
     evaluationDf["prediction"]
@@ -810,12 +811,12 @@ def weeklyBaselineModelEvaluation(trainDf: pd.DataFrame, testDf: pd.DataFrame):
   # Test only those where we have values:
   evaluationDf = pd.concat(
     [
-        testDf["amount"].rename(name="actual"),
-        predictedValues["amount"].rename(name="prediction")
+        testDf["amount"],
+        predictedValues["amount"]
     ],
     axis=1
   ).dropna()
-
+  evaluationDf.columns = ["actual", "prediction"]
   mae = mean_absolute_error(
     evaluationDf["actual"],
     evaluationDf["prediction"]
@@ -921,18 +922,19 @@ def arimaModelEvaluation(trainDf: pd.DataFrame, testDf: pd.DataFrame):
   )
 
   print(forecast)
-
+  #fix for pyright:
+  forecast = cast(TimeSeries, forecast)
   forecastDf = forecast.to_dataframe()
   print(forecastDf.head(10))
 
   evaluationDf = pd.concat(
       [
-          testDf["amount"].rename("actual"),
-          forecastDf["amount"].rename("prediction")
+          testDf["amount"],
+          forecastDf["amount"]
       ],
       axis=1
   )
-
+  evaluationDf.columns = ["actual", "prediction"]
   print(evaluationDf.head(10))
   print(evaluationDf.shape)
 
