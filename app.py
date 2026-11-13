@@ -212,7 +212,7 @@ def saveSystemInfoToDB(engine: Engine, key: str, value: str) -> bool:
       pd.DataFrame({"key_name": [key], "value": [value]}).to_sql("system_info", if_exists='append', con=engine, index=False)
     except Exception as e:
       returnvalue = False
-      print("Failed to save system_info.")
+      print(f"Failed to save system_info.: {e}")
   else:
     try:
       with engine.connect() as connection:
@@ -230,7 +230,7 @@ def saveSystemInfoToDB(engine: Engine, key: str, value: str) -> bool:
         connection.commit()
     except Exception as e:
       returnvalue = False
-      print("Failed to update system_info.")
+      print(f"Failed to update system_info. : {e}")
   return returnvalue
 
 
@@ -307,7 +307,10 @@ def prepareDataForDB(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
 
   #1. ignore rows whose "Datum und Uhrzeit" isnt in a datetime format as there is sometimes
   # "Anzahl Parkplätze gesamt" contained
-  df = df[pd.to_datetime(df["Datum und Uhrzeit"], errors="coerce").notna()] #filter to filter out rows without correct datetime (happens somteimes)
+  valid_dates = pd.to_datetime(df["Datum und Uhrzeit"], errors="coerce").notna()
+  df = df.loc[valid_dates]
+  #Pyright has a problem understanding the following, so i try the thing up there.
+  #df = df[pd.to_datetime(df["Datum und Uhrzeit"], errors="coerce").notna()] #filter to filter out rows without correct datetime (happens somteimes)
   #2. build df for parkingspaces
   #generate IDs since existing DB data may exist in db.
   psdf = getParkingspaces(getEngine())
@@ -333,6 +336,7 @@ def prepareDataForDB(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
   #3. build df for lots
   #list of dfs with "Datum und Uhrzeit" and the values of one Parking Lot
   lots = []
+  print(lots)
   #mapping = returnedPdDf.set_index("columnName")["id"]
   workingDf = df.rename(columns= mapping) #rename parkingspaces names to parkingspaces ids
   returnedLotDf = workingDf.melt(id_vars="Datum und Uhrzeit", var_name="parkingId", value_name="amount")
