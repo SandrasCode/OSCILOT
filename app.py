@@ -596,13 +596,13 @@ def analyzeDataOfLots(lotsDf: pd.DataFrame):
   #  .reset_index()
   #)
   #thing up there changed to following, because pyright gets it wrong:
-  patternSeries = (
+  patternSeries = cast(
+    pd.Series,
     lotsDf
     .groupby(["weekday", "time"], observed=True)["amount"]
     .mean()
   )
-  pattern = cast(pd.DataFrame, patternSeries.reset_index())
-
+  pattern = patternSeries.reset_index()
   sns.lineplot(
     data=pattern,
     x="time",
@@ -627,7 +627,7 @@ def analyzeDataOfLots(lotsDf: pd.DataFrame):
   # autocorrelation
   #df = lotsDf.loc[lotsDf['parkingId'] == 1]
   df = lotsDf
-  series: Series = df.set_index("timepoint")["amount"]
+  series = cast(Series, df.set_index("timepoint")["amount"])
   plot_acf(
     series.dropna(),
     lags=7 * 24 * 12
@@ -643,6 +643,7 @@ def analyzeDataOfLots(lotsDf: pd.DataFrame):
     len(values),
     d=5 * 60
   )
+  print(power, freq)
   plt.savefig("/app/output/frequencies.png")
   plt.close()
 
@@ -661,8 +662,12 @@ def analyzeDataOfLots(lotsDf: pd.DataFrame):
       (df["timepoint"] >= "2026-08-17") &
       (df["timepoint"] < "2026-08-31")
   ].copy()
-  sample["date"] = sample["timepoint"].dt.date
-  sample["time"] = sample["timepoint"].dt.strftime("%H:%M")
+  #sample["date"] = sample["timepoint"].dt.date
+  #fixed line up there to the following for pyright:
+  sample["date"] = cast(pd.Series, sample["timepoint"]).dt.date
+  #sample["time"] = sample["timepoint"].dt.strftime("%H:%M")
+  #fixed line up there to the following for pyright:
+  sample["time"] = cast(pd.Series, sample["timepoint"]).dt.strftime("%H:%M")
   pivot = sample.pivot_table(
     index="date",
     columns="time",
@@ -765,11 +770,11 @@ def baselineModelEvaluation(trainDf: pd.DataFrame, testDf: pd.DataFrame):
   # Test only those where we have values:
   evaluationDf = pd.concat(
     [
-        testDf["amount"].rename("actual"),
-        predictedValues["amount"].rename("prediction")
+        testDf["amount"].rename(name="actual"), #<- fix for pyright
+        predictedValues["amount"].rename(name="prediction")
     ],
     axis=1
-  ).dropna()
+).dropna()
 
   mae = mean_absolute_error(
     evaluationDf["actual"],
@@ -805,8 +810,8 @@ def weeklyBaselineModelEvaluation(trainDf: pd.DataFrame, testDf: pd.DataFrame):
   # Test only those where we have values:
   evaluationDf = pd.concat(
     [
-        testDf["amount"].rename("actual"),
-        predictedValues["amount"].rename("prediction")
+        testDf["amount"].rename(name="actual"),
+        predictedValues["amount"].rename(name="prediction")
     ],
     axis=1
   ).dropna()
