@@ -345,7 +345,7 @@ def prepareDataForDB(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
   returnedLotDf = returnedLotDf.dropna(subset=["amount"])
   returnedLotDf = returnedLotDf.drop_duplicates() #needed... :shrug:
   print("Which values are in my columns?")
-  amount_numeric = pd.to_numeric(
+  amount_numeric: Series = pd.to_numeric(
     returnedLotDf["amount"],
     errors="coerce"
   )
@@ -384,7 +384,7 @@ def getNewDataFromParkingDecks() -> tuple[pd.DataFrame, pd.Timestamp]:
   """
   lastDate = getLastParkingDataDate(getEngine())
   api_url = "https://api.github.com/repos/codeformuenster/parking-decks-muenster/contents/data"
-  def get_csv_files(url):
+  def get_csv_files(url: str):
     response = requests.get(url)
     response.raise_for_status()
     print("Begin getting files")
@@ -399,7 +399,7 @@ def getNewDataFromParkingDecks() -> tuple[pd.DataFrame, pd.Timestamp]:
 
   dataframes = []
   latestDate = None
-
+  csv_response: requests.Response | None = None
   for fileDate, csv_url in get_csv_files(api_url):
     if latestDate is None or fileDate > latestDate:
       latestDate = fileDate
@@ -412,6 +412,11 @@ def getNewDataFromParkingDecks() -> tuple[pd.DataFrame, pd.Timestamp]:
         print(f"Download failed (attempt {attempt + 1}/5): {e}")
         if attempt == 4:
             raise
+    # For pyright, actually this is not accessible by code logic, but pyright needs it
+    # to understand whats going on:
+    if csv_response is None:
+      raise RuntimeError("CSV download failed. - Error should not appear")
+
     print(f"Downloading CSV: {csv_url}")
     dataframes.append(
         pd.read_csv(StringIO(csv_response.text))
