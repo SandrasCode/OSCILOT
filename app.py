@@ -962,16 +962,26 @@ def arimaModelEvaluation(trainDf: pd.DataFrame, testDf: pd.DataFrame):
   print(f"Rmse: {rmse}")
 
 def prophetModelEvaluation(trainDf: pd.DataFrame, testDfProphet: pd.DataFrame):
+  #prophetDf = pd.concat([
+  #  trainDf.reset_index()[["timepoint", "amount"]],
+  #  testDfProphet.reset_index()[["timepoint", "amount"]]
+  #]).rename(
+  #    columns={
+  #        "timepoint": "ds",
+  #        "amount": "y"
+  #    }
+  #).dropna()
+  # Casted thing up there for pyright:
   prophetDf = pd.concat([
-    trainDf.reset_index()[["timepoint", "amount"]],
-    testDfProphet.reset_index()[["timepoint", "amount"]]
-  ]).rename(
+      trainDf.reset_index()[["timepoint", "amount"]],
+      testDfProphet.reset_index()[["timepoint", "amount"]]
+  ]).dropna()
+  prophetDf = cast(pd.DataFrame, prophetDf).rename(
       columns={
           "timepoint": "ds",
           "amount": "y"
       }
-  ).dropna()
-
+  )
 
   model = Prophet()
   # This looks like data leakage but isnt, because i use cutoffs
@@ -1061,15 +1071,17 @@ def rnnModelEvaluation(trainDf: pd.DataFrame, testDf: pd.DataFrame):
   )
 
   forecast = scaler.inverse_transform(forecast)
+  forecast = cast(TimeSeries, forecast)
   forecastDf = forecast.to_dataframe()
 
   evaluationDf = pd.concat(
       [
-          testDf["amount"].rename("actual"),
-          forecastDf["amount"].rename("prediction")
+          testDf["amount"],
+          forecastDf["amount"]
       ],
       axis=1
   ).dropna()
+  evaluationDf.columns = ["actual", "prediction"]
 
   mae = mean_absolute_error(
       evaluationDf["actual"],
