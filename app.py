@@ -432,7 +432,8 @@ def getNewDataFromParkingDecks() -> tuple[pd.DataFrame, pd.Timestamp]:
     raise RuntimeError("No latest date available.")
 
   print(f"Timestamp: {latestDate}")
-  return df, pd.Timestamp(latestDate)
+  # Cast for pyright:
+  return df, cast(pd.Timestamp, pd.Timestamp(latestDate))
 
 def updateParkingData() -> bool:
   print("Starting parking data update")
@@ -512,9 +513,10 @@ def analyzeDataOfLots(lotsDf: pd.DataFrame):
   """
   # analizing oscillations. 14 days:
   lotsDf["timepoint"] = pd.to_datetime(lotsDf["timepoint"])
-  sample = lotsDf[(lotsDf["timepoint"] >= "2025-06-01") &
-                  (lotsDf["timepoint"] < "2025-06-15")
-                ]
+  sample = cast(pd.DataFrame, lotsDf[
+    (lotsDf["timepoint"] >= "2025-06-01") &
+    (lotsDf["timepoint"] < "2025-06-15")
+  ])
   sns.lineplot(
     data=sample,
     x="timepoint",
@@ -527,11 +529,11 @@ def analyzeDataOfLots(lotsDf: pd.DataFrame):
   # analizing amount per time:
   lotsDf["time"] = lotsDf["timepoint"].dt.strftime("%H:%M")
   lotsDf["date"] = lotsDf["timepoint"].dt.date
-  sample = lotsDf[
+  sample = cast(pd.DataFrame, lotsDf[
     #(lotsDf["parkingId"] == 1) &
     (lotsDf["timepoint"] >= "2025-06-01") &
     (lotsDf["timepoint"] < "2025-06-15")
-  ]
+  ])
   sns.lineplot(
     data=sample,
     x="time",
@@ -587,12 +589,19 @@ def analyzeDataOfLots(lotsDf: pd.DataFrame):
   lotsDf["time"] = pd.to_datetime(
     "2000-01-01 " + lotsDf["time_30min"].dt.strftime("%H:%M:%S")
   )
-  pattern = (
-    lotsDf #.loc[lotsDf["parkingId"] == 1]
+  #pattern = (
+  #  lotsDf #.loc[lotsDf["parkingId"] == 1]
+  #  .groupby(["weekday", "time"], observed=True)["amount"]
+  #  .mean()
+  #  .reset_index()
+  #)
+  #thing up there changed to following, because pyright gets it wrong:
+  patternSeries = (
+    lotsDf
     .groupby(["weekday", "time"], observed=True)["amount"]
     .mean()
-    .reset_index()
   )
+  pattern = cast(pd.DataFrame, patternSeries.reset_index())
 
   sns.lineplot(
     data=pattern,
