@@ -1117,7 +1117,8 @@ def rnnModelEvaluationWithTimeAndWeatherFeatures(trainDf: pd.DataFrame, testDf: 
   print("________________")
 
   print("TRAIN TARGET NaN TIMESTAMPS:")
-  print(trainDf.index[trainDf["amount"].isna()])
+  mask = cast(pd.Series, trainDf["amount"].isna())
+  print(trainDf.index[mask])
 
   trainSeries = TimeSeries.from_dataframe(
     trainDf.reset_index(),
@@ -1163,11 +1164,14 @@ def rnnModelEvaluationWithTimeAndWeatherFeatures(trainDf: pd.DataFrame, testDf: 
   )
 
   targetScaler = Scaler()
-  trainSeriesScaled = targetScaler.fit_transform(trainSeries)
+  #Following corrected because trainSeriesScaled gets never used which upsets Pyright
+  #trainSeriesScaled = targetScaler.fit_transform(trainSeries)
+  targetScaler.fit(trainSeries)
 
   covariatesScaler = Scaler()
-  trainCovariatesScaled = covariatesScaler.fit_transform(trainCovariates)
-
+  #Following corrected because covariatesScaled gets never used which upsets Pyright
+  #trainCovariatesScaled = covariatesScaler.fit_transform(trainCovariates)
+  covariatesScaler.fit(trainCovariates)
 
   trainSubseries = [
     series
@@ -1185,7 +1189,7 @@ def rnnModelEvaluationWithTimeAndWeatherFeatures(trainDf: pd.DataFrame, testDf: 
           len(series)
       )
 
-  trainSubseriesScaled = [
+  trainSubseriesScaled: list[TimeSeries] = [
     targetScaler.transform(series)
     for series in trainSubseries
     ]
