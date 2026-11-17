@@ -1256,7 +1256,7 @@ def rnnModelEvaluationWithTimeAndWeatherFeatures(trainDf: pd.DataFrame, testDf: 
   print("Forecast before inverse transform:")
   print(forecast.to_dataframe().head())
   print(forecast.to_dataframe().isna().sum())
-  forecast = targetScaler.inverse_transform(forecast)
+  forecast = cast(TimeSeries, targetScaler.inverse_transform(forecast))
   forecastDf = forecast.to_dataframe()
 
   print("Forecast NaNs:", forecastDf["amount"].isna().sum())
@@ -1507,8 +1507,8 @@ def getWeatherData(
     if start < oneHourAgo:
       # case 3 a).
       #print("Case 3 a, _getForecast and _getHistorical")
-      historicalEnd = oneHourAgo
-      forecastStart = oneHourAgo + pd.Timedelta(minutes=15)
+      historicalEnd = cast(pd.Timestamp, oneHourAgo)
+      forecastStart = cast(pd.Timestamp, oneHourAgo + pd.Timedelta(minutes=15))
       pastDf = _getHistorical(st=start, en=historicalEnd)
       futureDf = _getForecast(st=forecastStart, en=end)
       weatherDf = pd.concat([pastDf, futureDf])
