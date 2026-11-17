@@ -1575,36 +1575,39 @@ def testWeatherCases():
   # 1. Future -> Future
   printWeatherTest(
     "TEST 1: Future",
-    now + pd.Timedelta(minutes=30),
-    now + pd.Timedelta(hours=2)
+    cast(pd.Timestamp, now + pd.Timedelta(minutes=30)),
+    cast(pd.Timestamp, now + pd.Timedelta(hours=2))
   )
   # 2. Past -> Past
   printWeatherTest(
     "TEST 2: Historical",
-    now - pd.Timedelta(days=2),
-    now - pd.Timedelta(days=2) + pd.Timedelta(hours=2)
+    cast(pd.Timestamp, now - pd.Timedelta(days=2)),
+    cast(pd.Timestamp, now - pd.Timedelta(days=2) + pd.Timedelta(hours=2))
   )
   # 3. Past -> Future, more than one hour in the past
   printWeatherTest(
     "TEST 3: Past -> Future",
-    now - pd.Timedelta(hours=2),
-    now + pd.Timedelta(hours=2)
+    cast(pd.Timestamp, now - pd.Timedelta(hours=2)),
+    cast(pd.Timestamp, now + pd.Timedelta(hours=2))
   )
   # 4. Past -> Future, but past is less than one hour ago
   printWeatherTest(
     "TEST 4: Recent Past -> Future",
-    now - pd.Timedelta(minutes=30),
-    now + pd.Timedelta(hours=2)
+    cast(pd.Timestamp, now - pd.Timedelta(minutes=30)),
+    cast(pd.Timestamp, now + pd.Timedelta(hours=2))
   )
+
+  # in the following cases i refuse to cast pd.Timestamp to pd.Timestamp!
+  #this is just TOO stupid. >>
   printWeatherTest(
     "TEST 5: rainy day",
-    pd.Timestamp("2026-09-13 13:00"),
-    pd.Timestamp("2026-09-13 18:00")
+    pd.Timestamp("2026-09-13 13:00"), # pyright: ignore[reportArgumentType]
+    pd.Timestamp("2026-09-13 18:00")  # pyright: ignore[reportArgumentType]
   )
   printWeatherTest(
     "TEST 6: Start of Dataset",
-    pd.Timestamp("2019-01-01"),
-    pd.Timestamp("2019-01-01 02:00")
+    pd.Timestamp("2019-01-01"),  # pyright: ignore[reportArgumentType]
+    pd.Timestamp("2019-01-01 02:00")  # pyright: ignore[reportArgumentType]
   )
 
 def trainAndSaveModel(trainDf: pd.DataFrame) -> RNNModel:
