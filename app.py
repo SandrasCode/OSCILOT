@@ -1623,12 +1623,13 @@ def trainAndSaveModel(trainDf: pd.DataFrame) -> RNNModel:
   )
 
   parkingIdEncoded = encoder.fit_transform(
-    trainDf[["parkingId"]]
+    cast(pd.DataFrame, trainDf[["parkingId"]])
   )
 
+  parkingIdCategories = cast(np.ndarray, encoder.categories_[0])
   parkingIdColumns = [
     f"parkingId_{parkingId}"
-    for parkingId in encoder.categories_[0]
+    for parkingId in parkingIdCategories
   ]
 
   for i, column in enumerate(parkingIdColumns):
@@ -1650,8 +1651,8 @@ def trainAndSaveModel(trainDf: pd.DataFrame) -> RNNModel:
     "temperature",
     "precipitation"
   ] + parkingIdColumns
-
-  for parkingId, parkingDf in trainDf.groupby("parkingId"):
+  # I coult use _ instead of parkingId but i want to do it this way for better readability.
+  for parkingId, parkingDf in trainDf.groupby("parkingId"):  # pyright: ignore[reportUnusedVariable]
 
     parkingDf = parkingDf.sort_index()
 
@@ -1962,6 +1963,8 @@ def setUpStreamlitApp():
 
   #st.write(parkingDecks)
 
+  reveal_type(parkingDecks)
+  reveal_type(parkingDecks.keys())
   parkingId = st.selectbox(
     "Parkhaus",
     options=parkingDecks.keys(),
