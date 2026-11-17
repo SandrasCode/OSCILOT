@@ -1190,7 +1190,7 @@ def rnnModelEvaluationWithTimeAndWeatherFeatures(trainDf: pd.DataFrame, testDf: 
       )
 
   trainSubseriesScaled: list[TimeSeries] = [
-    targetScaler.transform(series)
+    cast(TimeSeries, targetScaler.transform(series))
     for series in trainSubseries
     ]
 
@@ -1249,6 +1249,8 @@ def rnnModelEvaluationWithTimeAndWeatherFeatures(trainDf: pd.DataFrame, testDf: 
     retrain=False,
     last_points_only=True
   )
+  #for pyright:
+  forecast = cast(TimeSeries, forecast)
 
   print("inverse")
   print("Forecast before inverse transform:")
@@ -1265,11 +1267,12 @@ def rnnModelEvaluationWithTimeAndWeatherFeatures(trainDf: pd.DataFrame, testDf: 
   print("eval df")
   evaluationDf = pd.concat(
       [
-          testDf["amount"].rename("actual"),
-          forecastDf["amount"].rename("prediction")
+          testDf["amount"],
+          forecastDf["amount"]
       ],
       axis=1
   ).dropna()
+  evaluationDf.columns = ["actual", "prediction"]
 
   print("TEST INDEX:")
   print(testDf.index[:5])
@@ -1330,12 +1333,15 @@ def addTimeFeatures(df: pd.DataFrame) -> pd.DataFrame:
       dataframe with all features that came in from args and additionally features time_sin,
       time_cos, weekday_sin and weekday_cos.
   """
-  minutes = (
-  #  df["timepoint"].dt.hour * 60
-  #  + df["timepoint"].dt.minute
-    df.index.hour * 60
-    + df.index.minute
-  )
+  #explicit casting for Pyright/static type checking:
+  index = cast(pd.DatetimeIndex, df.index)
+  minutes = index.hour * 60 + index.minute
+  #minutes = (
+  ##  df["timepoint"].dt.hour * 60
+  ##  + df["timepoint"].dt.minute
+  #  df.index.hour * 60
+  #  + df.index.minute
+  #)
 
   df["time_sin"] = np.sin(
       2 * np.pi * minutes / (24 * 60)
@@ -1346,12 +1352,19 @@ def addTimeFeatures(df: pd.DataFrame) -> pd.DataFrame:
   )
 
   df["weekday_sin"] = np.sin(
-    2 * np.pi * df.index.dayofweek / 7
+    2 * np.pi * index.dayofweek / 7
   )
 
   df["weekday_cos"] = np.cos(
-      2 * np.pi * df.index.dayofweek / 7
+      2 * np.pi * index.dayofweek / 7
   )
+  #df["weekday_sin"] = np.sin(
+  #  2 * np.pi * df.index.dayofweek / 7
+  #)
+
+  #df["weekday_cos"] = np.cos(
+  #    2 * np.pi * df.index.dayofweek / 7
+  #)
   return df
 
 def getWeatherData(
