@@ -281,7 +281,7 @@ def getParkingDecks(engine: Engine) -> pd.DataFrame:
 
     return df
 
-def getParkingDecksAsDict(engine: Engine) -> dict:
+def getParkingDecksAsDict(engine: Engine) -> dict[int, str]:
   df = getParkingDecks(engine)
   parkingDecks = {}
   for _, row in df.iterrows():
@@ -1963,8 +1963,6 @@ def setUpStreamlitApp():
 
   #st.write(parkingDecks)
 
-  reveal_type(parkingDecks)
-  reveal_type(parkingDecks.keys())
   parkingId = st.selectbox(
     "Parkhaus",
     options=parkingDecks.keys(),
